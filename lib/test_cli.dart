@@ -1,149 +1,178 @@
 import 'dart:convert';
 import 'dart:io';
-import 'package:http/http.dart' as http; // 👈 추가
 import 'package:googleapis/drive/v3.dart' as drive;
 import 'package:googleapis/sheets/v4.dart' as sheets;
 import 'package:googleapis_auth/auth_io.dart';
+import 'package:http/http.dart' as http;
 
 void main() async {
-  final ledgerApp = HouseHoldLedgerSetup();
-  await ledgerApp.run();
+  print("--------------------------------------------------");
+  print("🚀 가계부 시스템 실행 (클래스 분리 구조)");
+  print("--------------------------------------------------");
+
+  final authService = GoogleAuthService();
+  final sheetService = HouseholdSheetService();
+
+  AuthClient? client;
+  try {
+    // 1. 구글 인증 진행 (캐시 토큰 활용)
+    client = await authService.getAuthenticatedClient();
+
+    // 2. 가계부 폴더 및 스프레드시트 초기화 진행
+    final spreadsheetId = await sheetService.setupLedgerSpreadsheet(client);
+
+    print("\n--------------------------------------------------");
+    print("🎉 모든 가계부 시트 설정이 완료되었습니다!");
+    print("📄 시트 ID: $spreadsheetId");
+    print("--------------------------------------------------");
+  } catch (e) {
+    print("\n❌ 작업 중 에러 발생: $e");
+  } finally {
+    client?.close();
+  }
 }
 
-class HouseHoldLedgerSetup {
-  final _scopes = [
+// ============================================================================
+// 🔑 1. 구글 OAuth2 인증 전담 서비스 클래스
+// ============================================================================
+class GoogleAuthService {
+  final List<String> _scopes = [
     drive.DriveApi.driveFileScope,
     sheets.SheetsApi.spreadsheetsScope,
   ];
 
-  // 인증 토큰을 저장할 파일 경로
-  final _tokenFile = File('credentials.json');
+  // 최상위 루트 디렉터리에 보안 파일 위치
+  final File _secretFile = File('client_secret.json');
+  final File _tokenFile = File('credentials.json');
 
-  /// 1. client_secret.json 파일 로드
-  Future<ClientId> _loadClientIdFromJson() async {
-    var configFile = File('client_secret.json');
-    if (!await configFile.exists()) {
-      configFile = File('client_secret.json');
+  /// client_secret.json 읽기
+  Future<ClientId> _loadClientId() async {
+    var file = _secretFile;
+    if (!await file.exists()) {
+      file = File('lib/client_secret.json');
     }
 
-    if (!await configFile.exists()) {
+    if (!await file.exists()) {
       throw Exception("❌ 'client_secret.json' 파일을 찾을 수 없습니다!");
     }
 
-    final jsonString = await configFile.readAsString();
+    final jsonString = await file.readAsString();
     final Map<String, dynamic> data = jsonDecode(jsonString);
     return ClientId(data['client_id'], data['client_secret']);
   }
 
-Future<AuthClient> _getAuthenticatedClient(ClientId clientId) async {
-  if (await _tokenFile.exists()) {
-    try {
-      final jsonString = await _tokenFile.readAsString();
-      final jsonMap = jsonDecode(jsonString) as Map<String, dynamic>;
+  /// 인증된 AuthClient 가져오기 (캐시 토큰 우선 사용)
+  Future<AuthClient> getAuthenticatedClient() async {
+    final clientId = await _loadClientId();
 
-      // 1. JSON에서 AccessToken 객체 복원 (만료 시간 명시)
-      final accessTokenMap = jsonMap['accessToken'] as Map<String, dynamic>?;
-      if (accessTokenMap != null) {
-        final tokenType = accessTokenMap['type'] as String? ?? 'Bearer';
-        final data = accessTokenMap['data'] as String;
-        final expiryStr = accessTokenMap['expiry'] as String;
-        final expiry = DateTime.parse(expiryStr);
+    // A. 저장된 토큰(credentials.json)이 존재하는 경우
+    if (await _tokenFile.exists()) {
+      try {
+        final jsonString = await _tokenFile.readAsString();
+        final jsonMap = jsonDecode(jsonString) as Map<String, dynamic>;
 
-        final accessToken = AccessToken(tokenType, data, expiry);
-        final refreshToken = jsonMap['refreshToken'] as String?;
-        final idToken = jsonMap['idToken'] as String?;
-        final scopes = (jsonMap['scopes'] as List<dynamic>?)?.cast<String>() ?? _scopes;
+        final accessTokenMap = jsonMap['accessToken'] as Map<String, dynamic>?;
+        if (accessTokenMap != null) {
+          final tokenType = accessTokenMap['type'] as String? ?? 'Bearer';
+          final data = accessTokenMap['data'] as String;
+          final expiry = DateTime.parse(accessTokenMap['expiry'] as String);
 
-        var credentials = AccessCredentials(
-          accessToken,
-          refreshToken,
-          scopes,
-          idToken: idToken,
-        );
+          final accessToken = AccessToken(tokenType, data, expiry);
+          final refreshToken = jsonMap['refreshToken'] as String?;
+          final idToken = jsonMap['idToken'] as String?;
+          final scopes =
+              (jsonMap['scopes'] as List<dynamic>?)?.cast<String>() ?? _scopes;
 
-        final httpClient = http.Client();
+          var credentials = AccessCredentials(
+            accessToken,
+            refreshToken,
+            scopes,
+            idToken: idToken,
+          );
 
-        // 2. 토큰이 만료되었거나 만료 직전이면 리프레시 토큰으로 자동 갱신
-        if (credentials.accessToken.hasExpired) {
-          if (refreshToken != null) {
-            print("🔄 토큰이 만료되어 자동으로 갱신합니다...");
-            credentials = await refreshCredentials(clientId, credentials, httpClient);
-            // 갱신된 새 토큰 저장
-            await _tokenFile.writeAsString(jsonEncode(credentials.toJson()));
-          } else {
-            throw Exception("Refresh token이 없습니다.");
+          final httpClient = http.Client();
+
+          // Access Token 만료 시 Refresh Token으로 자동 갱신
+          if (credentials.accessToken.hasExpired) {
+            if (refreshToken != null) {
+              print("🔄 Access Token이 만료되어 자동으로 갱신합니다...");
+              credentials = await refreshCredentials(
+                clientId,
+                credentials,
+                httpClient,
+              );
+              await _tokenFile.writeAsString(jsonEncode(credentials.toJson()));
+            } else {
+              throw Exception("Refresh Token이 없어 재인증이 필요합니다.");
+            }
           }
-        }
 
-        // 3. 인증된 AuthClient 생성
-        final client = authenticatedClient(httpClient, credentials);
-        print("🔑 캐시된 인증 토큰(credentials.json)을 사용하여 로그인을 완료했습니다!");
-        return client;
+          final client = authenticatedClient(httpClient, credentials);
+          print("🔑 저장된 인증 토큰(credentials.json)으로 로그인 성공!");
+          return client;
+        }
+      } catch (e) {
+        print("⚠️ 토큰 복원 중 오류 발생 ($e). 다시 브라우저 로그인을 진행합니다.");
       }
-    } catch (e) {
-      print("⚠️ 저장된 토큰 처리 중 오류 발생 ($e). 브라우저 로그인을 재진행합니다.");
     }
+
+    // B. 최초 로그인 (브라우저 승인)
+    print("\n🌐 최초 인증이 필요합니다. 브라우저를 열어 로그인해 주세요...");
+    final client = await clientViaUserConsent(
+      clientId,
+      _scopes,
+      (url) => _openBrowser(url),
+    );
+
+    // 신규 토큰 저장
+    await _tokenFile.writeAsString(jsonEncode(client.credentials.toJson()));
+    print("💾 새로운 인증 토큰이 'credentials.json'에 저장되었습니다!");
+
+    return client;
   }
 
-  // 저장된 토큰이 없거나 무효한 경우 최초 로그인
-  print("\n🌐 최초 인증이 필요합니다. 브라우저를 열어 구글 로그인을 진행합니다...");
-  final client = await clientViaUserConsent(
-    clientId,
-    _scopes,
-    (url) => _openBrowser(url),
-  );
-
-  // 새로운 토큰 저장
-  final credentials = client.credentials;
-  await _tokenFile.writeAsString(jsonEncode(credentials.toJson()));
-  print("💾 새로운 인증 토큰이 '${_tokenFile.path}' 파일에 저장되었습니다!");
-
-  return client;
+  /// OS별 브라우저 오픈
+  void _openBrowser(String url) {
+    if (Platform.isWindows) {
+      Process.run('rundll32', ['url.dll,FileProtocolHandler', url]);
+    } else if (Platform.isMacOS) {
+      Process.run('open', [url]);
+    } else if (Platform.isLinux) {
+      Process.run('xdg-open', [url]);
+    }
+  }
 }
 
-  Future<void> run() async {
-    print("--------------------------------------------------");
-    print("🚀 가계부 시스템 실행 (토큰 자동 캐싱 지원)");
-    print("--------------------------------------------------");
+// ============================================================================
+// 📊 2. 가계부 구글 드라이브 및 스프레드시트 관리 서비스 클래스
+// ============================================================================
+class HouseholdSheetService {
+  /// 가계부 폴더 및 연도별 시트 전체 설정 진행
+  Future<String> setupLedgerSpreadsheet(AuthClient client) async {
+    final driveApi = drive.DriveApi(client);
+    final sheetsApi = sheets.SheetsApi(client);
 
-    AuthClient? client;
-    try {
-      final clientId = await _loadClientIdFromJson();
+    // 1. '가계부' 폴더 확인/생성
+    final folderId = await _getOrCreateFolder(driveApi, "가계부");
 
-      // 토큰 캐시를 활용하여 클라이언트 획득
-      client = await _getAuthenticatedClient(clientId);
+    // 2. 현재 연도 기준 파일 생성 (예: 가계부_2026)
+    final currentYear = DateTime.now().year;
+    final fileName = "가계부_$currentYear";
 
-      final driveApi = drive.DriveApi(client);
-      final sheetsApi = sheets.SheetsApi(client);
-
-      // 1. '가계부' 폴더 확인 및 생성
-      final folderId = await _getOrCreateFolder(driveApi, "가계부");
-
-      // 2. 현재 연도 기준 파일명 생성 (예: 가계부_2026)
-      final currentYear = DateTime.now().year;
-      final fileName = "가계부_$currentYear";
-
-      // 3. 폴더 내 연도별 스프레드시트 확인 및 생성
-      final spreadsheetId = await _getOrCreateSpreadsheet(
-        driveApi,
-        sheetsApi,
-        folderId,
-        fileName,
-      );
-
-      print("\n--------------------------------------------------");
-      print("🎉 가계부 시트 작업 완벽 완료!");
-      print("📄 시트 ID: $spreadsheetId");
-      print("--------------------------------------------------");
-    } catch (e) {
-      print("\n❌ 작업 중 에러 발생: $e");
-    } finally {
-      client?.close();
-    }
+    // 3. 스프레드시트 확인/생성 및 초기화
+    return await _getOrCreateSpreadsheet(
+      driveApi,
+      sheetsApi,
+      folderId,
+      fileName,
+    );
   }
 
-  /// 3. 구글 드라이브 폴더 생성/검색
-  Future<String> _getOrCreateFolder(drive.DriveApi driveApi, String folderName) async {
+  /// 구글 드라이브 폴더 검색 및 생성
+  Future<String> _getOrCreateFolder(
+    drive.DriveApi driveApi,
+    String folderName,
+  ) async {
     print("\n📁 1. '$folderName' 폴더 확인 중...");
 
     final query =
@@ -156,7 +185,7 @@ Future<AuthClient> _getAuthenticatedClient(ClientId clientId) async {
       return id;
     }
 
-    print("  └ ➕ '$folderName' 폴더가 없습니다. 신규 생성 중...");
+    print("  └ ➕ '$folderName' 폴더가 없어 새로 생성합니다...");
     final folderMetaData = drive.File()
       ..name = folderName
       ..mimeType = 'application/vnd.google-apps.folder';
@@ -166,7 +195,7 @@ Future<AuthClient> _getAuthenticatedClient(ClientId clientId) async {
     return createdFolder.id!;
   }
 
-  /// 4. 연도별 스프레드시트 생성
+  /// 연도별 스프레드시트 검색 및 구조화 생성
   Future<String> _getOrCreateSpreadsheet(
     drive.DriveApi driveApi,
     sheets.SheetsApi sheetsApi,
@@ -181,12 +210,13 @@ Future<AuthClient> _getAuthenticatedClient(ClientId clientId) async {
 
     if (result.files != null && result.files!.isNotEmpty) {
       final id = result.files!.first.id!;
-      print("  └ 💡 기존 파일이 존재합니다. (ID: $id)");
+      print("  └ 💡 기존 파일이 이미 존재합니다. (ID: $id)");
       return id;
     }
 
-    print("  └ ➕ '$fileName' 파일이 없습니다. 시트 구조를 생성합니다...");
+    print("  └ ➕ '$fileName' 파일이 없어 새 시트를 생성합니다...");
 
+    // Overview + 1월~12월 시트 구성
     final List<sheets.Sheet> sheetsList = [
       sheets.Sheet(properties: sheets.SheetProperties(title: 'Overview')),
     ];
@@ -205,26 +235,27 @@ Future<AuthClient> _getAuthenticatedClient(ClientId clientId) async {
     final createdSpreadsheet = await sheetsApi.spreadsheets.create(spreadsheet);
     final spreadsheetId = createdSpreadsheet.spreadsheetId!;
 
+    // 지정 폴더로 이동
     await driveApi.files.update(
       drive.File(),
       spreadsheetId,
       addParents: folderId,
     );
 
-    print("  └ 🎨 Overview 시트 및 월별 헤더 세팅 중...");
+    print("  └ 🎨 Overview 안내표, 월별 수식 및 헤더를 입력하는 중...");
     await _initializeAllSheets(sheetsApi, spreadsheetId);
 
     return spreadsheetId;
   }
 
-  /// 5. Overview 및 월별 시트 초기 세팅
+  /// Overview 및 1~12월 시트 초기 데이터 및 수식 입력
   Future<void> _initializeAllSheets(
     sheets.SheetsApi sheetsApi,
     String spreadsheetId,
   ) async {
     List<sheets.ValueRange> data = [];
 
-    // Overview 안내표
+    // [A] Overview 안내표
     final List<List<String>> overviewGuide = [
       ["📌 [수입 분류 안내]", ""],
       ["주수입", "월급, 상여금, 사업소득"],
@@ -249,7 +280,7 @@ Future<AuthClient> _getAuthenticatedClient(ClientId clientId) async {
       sheets.ValueRange(range: "'Overview'!A1:B17", values: overviewGuide),
     );
 
-    // 수입 요약표 수식
+    // [B] Overview 수입 요약표 (SUMIF 수식)
     final monthsHeader = [
       "수입분류", "1월", "2월", "3월", "4월", "5월", "6월",
       "7월", "8월", "9월", "10월", "11월", "12월", "연간 합계"
@@ -267,6 +298,7 @@ Future<AuthClient> _getAuthenticatedClient(ClientId clientId) async {
       row.add("=SUM(B$rowNum:M$rowNum)");
       incomeTable.add(row);
     }
+
     List<String> incomeTotalRow = ["합계"];
     for (int colIdx = 0; colIdx < 13; colIdx++) {
       final colLetter = String.fromCharCode(66 + colIdx);
@@ -278,7 +310,7 @@ Future<AuthClient> _getAuthenticatedClient(ClientId clientId) async {
       sheets.ValueRange(range: "'Overview'!A20:N25", values: incomeTable),
     );
 
-    // 지출 요약표 수식
+    // [C] Overview 지출 요약표 (SUMIF 수식)
     final expenseCategories = [
       "식비", "고정지출", "생활/주거", "교통/차량", "쇼핑/패션",
       "문화/여가", "경조사/선물", "의료/건강", "교육/자기개발", "기타"
@@ -299,6 +331,7 @@ Future<AuthClient> _getAuthenticatedClient(ClientId clientId) async {
       row.add("=SUM(B$rowNum:M$rowNum)");
       expenseTable.add(row);
     }
+
     List<String> expenseTotalRow = ["합계"];
     for (int colIdx = 0; colIdx < 13; colIdx++) {
       final colLetter = String.fromCharCode(66 + colIdx);
@@ -310,7 +343,7 @@ Future<AuthClient> _getAuthenticatedClient(ClientId clientId) async {
       sheets.ValueRange(range: "'Overview'!A28:N39", values: expenseTable),
     );
 
-    // 1~12월 헤더
+    // [D] 1~12월 헤더 입력
     for (int month = 1; month <= 12; month++) {
       final sheetName = '${month}월';
       data.add(
@@ -332,16 +365,6 @@ Future<AuthClient> _getAuthenticatedClient(ClientId clientId) async {
     );
 
     await sheetsApi.spreadsheets.values.batchUpdate(request, spreadsheetId);
-    print("  └ ✅ Overview 종합 통계표 및 1~12월 헤더 세팅 완료!");
-  }
-
-  void _openBrowser(String url) {
-    if (Platform.isWindows) {
-      Process.run('rundll32', ['url.dll,FileProtocolHandler', url]);
-    } else if (Platform.isMacOS) {
-      Process.run('open', [url]);
-    } else if (Platform.isLinux) {
-      Process.run('xdg-open', [url]);
-    }
+    print("  └ ✅ Overview 종합 통계표 및 1~12월 헤더 입력 세팅 완벽 완료!");
   }
 }

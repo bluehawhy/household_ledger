@@ -1,121 +1,121 @@
 import 'package:flutter/material.dart';
+import 'google_apps_spreadsheet.dart'; // 👈 이 줄이 누락되어 발생하는 오류입니다!
 
-class MainUI extends StatefulWidget {
-  const MainUI({super.key});
+class MainUiScreen extends StatefulWidget {
+  const MainUiScreen({super.key});
 
   @override
-  State<MainUI> createState() => _MainUIState();
+  State<MainUiScreen> createState() => _MainUiScreenState();
 }
 
-class _MainUIState extends State<MainUI> {
-  bool _isLoggedIn = false;
+class _MainUiScreenState extends State<MainUiScreen> {
+  // 이제 GoogleSheetManager를 정상적으로 인식합니다.
+  final GoogleSheetManager _sheetManager = GoogleSheetManager();
+
   bool _isLoading = false;
+  String _statusMessage = "버튼을 누르면 구글 로그인 후 가계부를 생성합니다.";
+  String? _spreadsheetId;
 
-  // 가상 로그인 테스트
-  void _handleMockLogin() async {
-    setState(() => _isLoading = true);
-    
-    // 1초 뒤 로그인 완료 처리
-    await Future.delayed(const Duration(seconds: 1));
-
+  Future<void> _handleStartProcess() async {
     setState(() {
-      _isLoading = false;
-      _isLoggedIn = true;
+      _isLoading = true;
+      _statusMessage = "🔑 구글 로그인 및 가계부 설정 진행 중...";
+      _spreadsheetId = null;
     });
 
-    if (mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('UI 테스트: 로그인 성공! (가계부 시트 연동 준비됨)')),
-      );
+    try {
+      final spreadsheetId = await _sheetManager.runHouseholdLedgerSetup();
+
+      setState(() {
+        _spreadsheetId = spreadsheetId;
+        _statusMessage = "🎉 가계부 시트 설정이 성공적으로 완료되었습니다!";
+      });
+    } catch (e) {
+      setState(() {
+        _statusMessage = "❌ 작업 도중 에러가 발생했습니다:\n$e";
+      });
+    } finally {
+      setState(() {
+        _isLoading = false;
+      });
     }
-  }
-
-  // 가상 로그아웃
-  void _handleMockLogout() {
-    setState(() {
-      _isLoggedIn = false;
-    });
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text('가계부 (UI 테스트)'),
+        title: const Text('구글 연동 가계부'),
         centerTitle: true,
-        backgroundColor: Theme.of(context).colorScheme.inversePrimary,
       ),
       body: Center(
         child: Padding(
           padding: const EdgeInsets.all(24.0),
-          child: _isLoading
-              ? const Column(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    CircularProgressIndicator(),
-                    SizedBox(height: 16),
-                    Text('로그인 처리 중...'),
-                  ],
-                )
-              : !_isLoggedIn
-                  ? Column(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        const Icon(
-                          Icons.account_balance_wallet,
-                          size: 80,
-                          color: Colors.deepPurple,
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              const Icon(
+                Icons.account_balance_wallet_outlined,
+                size: 80,
+                color: Colors.teal,
+              ),
+              const SizedBox(height: 24),
+              const Text(
+                '구글 드라이브 가계부 시스템',
+                style: TextStyle(
+                  fontSize: 22,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+              const SizedBox(height: 12),
+              Text(
+                _statusMessage,
+                textAlign: TextAlign.center,
+                style: TextStyle(
+                  fontSize: 14,
+                  color: _spreadsheetId != null ? Colors.green : Colors.grey[700],
+                ),
+              ),
+              if (_spreadsheetId != null) ...[
+                const SizedBox(height: 12),
+                SelectableText(
+                  "시트 ID: $_spreadsheetId",
+                  style: const TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.w500,
+                    color: Colors.blueGrey,
+                  ),
+                ),
+              ],
+              const SizedBox(height: 32),
+              ElevatedButton.icon(
+                onPressed: _isLoading ? null : _handleStartProcess,
+                icon: _isLoading
+                    ? const SizedBox(
+                        width: 20,
+                        height: 20,
+                        child: CircularProgressIndicator(
+                          strokeWidth: 2,
+                          color: Colors.white,
                         ),
-                        const SizedBox(height: 24),
-                        const Text(
-                          '나만의 가계부에 오신 것을 환영합니다',
-                          style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
-                        ),
-                        const SizedBox(height: 32),
-                        ElevatedButton.icon(
-                          onPressed: _handleMockLogin,
-                          icon: const Icon(Icons.login),
-                          label: const Text('Google 계정으로 로그인 (테스트)'),
-                          style: ElevatedButton.styleFrom(
-                            padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 16),
-                            textStyle: const TextStyle(fontSize: 16),
-                          ),
-                        ),
-                      ],
-                    )
-                  : Column(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        const CircleAvatar(
-                          radius: 36,
-                          child: Icon(Icons.person, size: 40),
-                        ),
-                        const SizedBox(height: 16),
-                        const Text(
-                          '테스트 사용자님 환영합니다!',
-                          style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
-                        ),
-                        const Text('user@example.com', style: TextStyle(color: Colors.grey)),
-                        const SizedBox(height: 16),
-                        Container(
-                          padding: const EdgeInsets.all(12),
-                          decoration: BoxDecoration(
-                            color: Colors.grey.shade100,
-                            borderRadius: BorderRadius.circular(8),
-                            border: Border.all(color: Colors.grey.shade300),
-                          ),
-                          child: const Text(
-                            '연동된 시트 ID: mock_spreadsheet_id_12345',
-                            style: TextStyle(fontSize: 12, color: Colors.blueGrey),
-                          ),
-                        ),
-                        const SizedBox(height: 32),
-                        OutlinedButton(
-                          onPressed: _handleMockLogout,
-                          child: const Text('로그아웃'),
-                        ),
-                      ],
-                    ),
+                      )
+                    : const Icon(Icons.login),
+                label: Text(_isLoading ? "처리 중..." : "구글 로그인 & 가계부 생성"),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: Colors.teal,
+                  foregroundColor: Colors.white,
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 24,
+                    vertical: 14,
+                  ),
+                  textStyle: const TextStyle(
+                    fontSize: 16,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+              ),
+            ],
+          ),
         ),
       ),
     );
