@@ -1,5 +1,8 @@
 import 'package:flutter/material.dart';
-import 'google_apps_spreadsheet.dart'; // 👈 이 줄이 누락되어 발생하는 오류입니다!
+
+// 💡 새롭게 정립한 경로로 import를 수정했습니다.
+import '../services/auth/google_auth.dart';
+import '../services/spread_sheet/google_spreadsheet.dart';
 
 class MainUiScreen extends StatefulWidget {
   const MainUiScreen({super.key});
@@ -9,7 +12,7 @@ class MainUiScreen extends StatefulWidget {
 }
 
 class _MainUiScreenState extends State<MainUiScreen> {
-  // 이제 GoogleSheetManager를 정상적으로 인식합니다.
+  // 조건부 임포트 매니저(GoogleSheetManager)가 앱/데스크톱 환경을 알아서 판별해 동작합니다.
   final GoogleSheetManager _sheetManager = GoogleSheetManager();
 
   bool _isLoading = false;

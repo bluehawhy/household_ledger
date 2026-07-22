@@ -1,8 +1,7 @@
 import 'package:flutter/material.dart';
-import 'main_ui.dart';
+import '../ui/main_ui.dart';
 
 void main() {
-  WidgetsFlutterBinding.ensureInitialized();
   runApp(const MyApp());
 }
 
@@ -12,13 +11,12 @@ class MyApp extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      title: '가계부',
-      debugShowCheckedModeBanner: false,
+      title: '구글 가계부',
       theme: ThemeData(
-        colorScheme: ColorScheme.fromSeed(seedColor: Colors.teal),
+        primarySwatch: Colors.teal,
         useMaterial3: true,
       ),
-      home: const MainUiScreen(),
+      home: MainUiScreen(), // 👈 const 제거
     );
   }
 }
