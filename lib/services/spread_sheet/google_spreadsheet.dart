@@ -1,5 +1,3 @@
-//google_spreadsheet.dart
-
 import 'dart:convert';
 import 'dart:io';
 import 'package:googleapis/drive/v3.dart' as drive;
@@ -39,10 +37,14 @@ class CategoryMapper {
   Map<String, List<String>> incomeCategories = {};
   Map<String, List<String>> expenseCategories = {};
 
-  Future<void> loadCategoryJson(String filePath) async {
+  bool _isLoaded = false;
+  bool get isLoaded => _isLoaded;
+
+  Future<void> loadCategoryJson([String filePath = 'ledger_ingestion_info.json']) async {
     final file = File(filePath);
     if (!await file.exists()) {
-      print("⚠️ [CategoryMapper] JSON 파일을 찾을 수 없습니다 ($filePath). 기본값('미입력')으로 진행됩니다.");
+      print("⚠️ [CategoryMapper] JSON 파일($filePath)을 찾을 수 없습니다.");
+      _isLoaded = true;
       return;
     }
 
@@ -63,9 +65,11 @@ class CategoryMapper {
           (key, value) => MapEntry(key, List<String>.from(value)),
         );
       }
-      print("✅ [CategoryMapper] 카테고리 JSON 데이터 로드 완료");
+      _isLoaded = true;
+      print("✅ [CategoryMapper] 카테고리 JSON 데이터 로드 완료!");
     } catch (e) {
       print("❌ [CategoryMapper] JSON 파싱 에러: $e");
+      _isLoaded = true;
     }
   }
 
@@ -92,8 +96,13 @@ class CategoryMapper {
 class HouseholdSheetService {
   final CategoryMapper categoryMapper = CategoryMapper();
 
+  /// 서비스 초기화 시 JSON 설정 파일 로드
+  Future<void> init([String filePath = 'ledger_ingestion_info.json']) async {
+    await categoryMapper.loadCategoryJson(filePath);
+  }
+
   // --------------------------------------------------------------------------
-  // 🟢 [기능 A] 파일 및 시트 구조 생성 로직 (기존 함수명 호환 유지)
+  // 🟢 [기능 A] 파일 및 시트 구조 생성 로직
   // --------------------------------------------------------------------------
 
   /// [기존 호환용] 현재 연도 기준 가계부 설정
@@ -103,6 +112,11 @@ class HouseholdSheetService {
 
   /// [확장용] 특정 연도 가계부 설정
   Future<String> setupLedgerSpreadsheetForYear(AuthClient client, int year) async {
+    // 안전장치: 카테고리가 안 읽혀있다면 JSON 로드 실행
+    if (!categoryMapper.isLoaded) {
+      await categoryMapper.loadCategoryJson();
+    }
+
     final driveApi = drive.DriveApi(client);
     final sheetsApi = sheets.SheetsApi(client);
 
@@ -199,40 +213,48 @@ class HouseholdSheetService {
   ) async {
     List<sheets.ValueRange> data = [];
 
+    // ------------------------------------------------------------------------
+    // 1. JSON 기반 Overview 안내표 작성
+    // ------------------------------------------------------------------------
     final List<List<String>> overviewGuide = [
       ["📌 [수입 분류 안내]", ""],
-      ["주수입", "월급, 상여금, 사업소득"],
-      ["부수입", "부업, 당근마켓/중고거래 판매, 기타 수입"],
-      ["금융소득", "이자, 배당금, 주식/코인 수익"],
-      ["포인트/캐시백", "네이버페이 포인트, 카드 캐시백, 기프티콘 사용"],
-      ["", ""],
-      ["📌 [지출 분류 안내]", ""],
-      ["식비", "식재료 구매, 외식, 배달음식, 카페/디저트"],
-      ["고정지출", "월세, 공과금(전기/수도/가스), 통신비, 보험료, 구독서비스 등"],
-      ["생활/주거", "생필품, 가구/가전, 청소/위생용품"],
-      ["교통/차량", "대중교통, 주유비, 주차비, 정비/통행료"],
-      ["쇼핑/패션", "의류, 잡화, 뷰티, 미용실"],
-      ["문화/여가", "영화/공연, 취미, 여행, 운동/헬스"],
-      ["경조사/선물", "부조금, 축의금, 명절/생일 선물, 용돈"],
-      ["의료/건강", "병원비, 약국, 영양제"],
-      ["교육/자기개발", "학원비, 도서 구매, 강의/시험 응시료"],
-      ["기타", "예비비, 분류 불가 지출"],
     ];
 
+    categoryMapper.incomeCategories.forEach((cat, keywords) {
+      overviewGuide.add([cat, keywords.join(", ")]);
+    });
+
+    overviewGuide.add(["", ""]);
+    overviewGuide.add(["📌 [지출 분류 안내]", ""]);
+
+    categoryMapper.expenseCategories.forEach((cat, keywords) {
+      overviewGuide.add([cat, keywords.join(", ")]);
+    });
+
+    final int guideEndRow = overviewGuide.length;
     data.add(
-      sheets.ValueRange(range: "'Overview'!A1:B17", values: overviewGuide),
+      sheets.ValueRange(
+        range: "'Overview'!A1:B$guideEndRow",
+        values: overviewGuide,
+      ),
     );
 
+    // ------------------------------------------------------------------------
+    // 2. 수입 종합 통계표 생성 (동적 위치 계산)
+    // ------------------------------------------------------------------------
     final monthsHeader = [
       "수입분류", "1월", "2월", "3월", "4월", "5월", "6월",
       "7월", "8월", "9월", "10월", "11월", "12월", "연간 합계"
     ];
-    final incomeCategories = ["주수입", "부수입", "금융소득", "포인트/캐시백"];
+
+    final incomeList = categoryMapper.incomeCategories.keys.toList();
     List<List<String>> incomeTable = [monthsHeader];
 
-    for (int i = 0; i < incomeCategories.length; i++) {
-      final category = incomeCategories[i];
-      final rowNum = 21 + i;
+    final int incomeStartRow = guideEndRow + 3;
+
+    for (int i = 0; i < incomeList.length; i++) {
+      final category = incomeList[i];
+      final rowNum = incomeStartRow + 1 + i;
       List<String> row = [category];
       for (int m = 1; m <= 12; m++) {
         row.add("=SUMIF('${m}월'!\$B:\$B, \$A$rowNum, '${m}월'!\$D:\$D)");
@@ -241,30 +263,40 @@ class HouseholdSheetService {
       incomeTable.add(row);
     }
 
+    final int incomeFirstDataRow = incomeStartRow + 1;
+    final int incomeLastDataRow = incomeStartRow + incomeList.length;
+
     List<String> incomeTotalRow = ["합계"];
     for (int colIdx = 0; colIdx < 13; colIdx++) {
       final colLetter = String.fromCharCode(66 + colIdx);
-      incomeTotalRow.add("=SUM(${colLetter}21:${colLetter}24)");
+      incomeTotalRow.add("=SUM(${colLetter}$incomeFirstDataRow:${colLetter}$incomeLastDataRow)");
     }
     incomeTable.add(incomeTotalRow);
 
+    final int incomeEndRow = incomeStartRow + incomeTable.length - 1;
+
     data.add(
-      sheets.ValueRange(range: "'Overview'!A20:N25", values: incomeTable),
+      sheets.ValueRange(
+        range: "'Overview'!A$incomeStartRow:N$incomeEndRow",
+        values: incomeTable,
+      ),
     );
 
-    final expenseCategories = [
-      "식비", "고정지출", "생활/주거", "교통/차량", "쇼핑/패션",
-      "문화/여가", "경조사/선물", "의료/건강", "교육/자기개발", "기타"
-    ];
+    // ------------------------------------------------------------------------
+    // 3. 지출 종합 통계표 생성 (동적 위치 계산)
+    // ------------------------------------------------------------------------
+    final expenseList = categoryMapper.expenseCategories.keys.toList();
     final expenseMonthsHeader = [
       "지출분류", "1월", "2월", "3월", "4월", "5월", "6월",
       "7월", "8월", "9월", "10월", "11월", "12월", "연간 합계"
     ];
     List<List<String>> expenseTable = [expenseMonthsHeader];
 
-    for (int i = 0; i < expenseCategories.length; i++) {
-      final category = expenseCategories[i];
-      final rowNum = 29 + i;
+    final int expenseStartRow = incomeEndRow + 3;
+
+    for (int i = 0; i < expenseList.length; i++) {
+      final category = expenseList[i];
+      final rowNum = expenseStartRow + 1 + i;
       List<String> row = [category];
       for (int m = 1; m <= 12; m++) {
         row.add("=SUMIF('${m}월'!\$H:\$H, \$A$rowNum, '${m}월'!\$J:\$J)");
@@ -273,17 +305,28 @@ class HouseholdSheetService {
       expenseTable.add(row);
     }
 
+    final int expenseFirstDataRow = expenseStartRow + 1;
+    final int expenseLastDataRow = expenseStartRow + expenseList.length;
+
     List<String> expenseTotalRow = ["합계"];
     for (int colIdx = 0; colIdx < 13; colIdx++) {
       final colLetter = String.fromCharCode(66 + colIdx);
-      expenseTotalRow.add("=SUM(${colLetter}29:${colLetter}38)");
+      expenseTotalRow.add("=SUM(${colLetter}$expenseFirstDataRow:${colLetter}$expenseLastDataRow)");
     }
     expenseTable.add(expenseTotalRow);
 
+    final int expenseEndRow = expenseStartRow + expenseTable.length - 1;
+
     data.add(
-      sheets.ValueRange(range: "'Overview'!A28:N39", values: expenseTable),
+      sheets.ValueRange(
+        range: "'Overview'!A$expenseStartRow:N$expenseEndRow",
+        values: expenseTable,
+      ),
     );
 
+    // ------------------------------------------------------------------------
+    // 4. 1~12월 시트 헤더 생성
+    // ------------------------------------------------------------------------
     for (int month = 1; month <= 12; month++) {
       final sheetName = '${month}월';
       data.add(
@@ -305,7 +348,7 @@ class HouseholdSheetService {
     );
 
     await sheetsApi.spreadsheets.values.batchUpdate(request, spreadsheetId);
-    print("  └ ✅ Overview 종합 통계표 및 1~12월 헤더 입력 세팅 완벽 완료!");
+    print("  └ ✅ Overview 통계표 및 범례 작성 완료!");
   }
 
   // --------------------------------------------------------------------------
@@ -317,6 +360,10 @@ class HouseholdSheetService {
     required LedgerItem item,
     String? spreadsheetId,
   }) async {
+    if (!categoryMapper.isLoaded) {
+      await categoryMapper.loadCategoryJson();
+    }
+
     final sheetsApi = sheets.SheetsApi(client);
 
     String targetSpreadsheetId;
@@ -376,7 +423,6 @@ class HouseholdSheetService {
         ),
       );
 
-      // 💡 BatchUpdateRequest -> BatchUpdateSpreadsheetRequest 로 수정 완료
       await sheetsApi.spreadsheets.batchUpdate(
         sheets.BatchUpdateSpreadsheetRequest(requests: [addSheetRequest]),
         spreadsheetId,
