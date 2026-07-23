@@ -394,7 +394,7 @@ class HouseholdSheetService {
       return;
     }
 
-    await _appendTransactionData(
+    await appendTransactionData(
       sheetsApi,
       targetSpreadsheetId,
       monthSheetName,
@@ -475,29 +475,45 @@ class HouseholdSheetService {
     return false;
   }
 
-  Future<void> _appendTransactionData(
+  Future<void> appendTransactionData(
     sheets.SheetsApi sheetsApi,
     String spreadsheetId,
     String sheetName,
     List<List<dynamic>> existingRows,
     LedgerItem item,
   ) async {
+    if (existingRows.isEmpty) return;
+
     final isIncome = item.type == TransactionType.income;
-    final checkIdx = isIncome ? 0 : 5;
+    final headerRow = existingRows[0].map((e) => e.toString().trim()).toList();
 
-    int targetRow = 2;
+    // 1. 헤더 행에서 '날짜', '내용', '금액'의 모든 인덱스 위치(1번째: 수입, 2번째: 지출) 찾기
+    final dateIndices = <int>[];
+    final descIndices = <int>[];
+    final amountIndices = <int>[];
 
-    for (int i = 1; i < existingRows.length; i++) {
-      if (existingRows[i].length > checkIdx &&
-          existingRows[i][checkIdx].toString().isNotEmpty) {
-        targetRow = i + 2;
-      }
+    for (int i = 0; i < headerRow.length; i++) {
+      if (headerRow[i] == "날짜") dateIndices.add(i);
+      if (headerRow[i] == "내용") descIndices.add(i);
+      if (headerRow[i] == "금액") amountIndices.add(i);
     }
 
-    final targetRange = isIncome
-        ? "'$sheetName'!A$targetRow:D$targetRow"
-        : "'$sheetName'!F$targetRow:J$targetRow";
+    // 필요한 헤더 개수 검증 (수입: 0번 인덱스 필요 / 지출: 1번 인덱스 필요)
+    final targetIndex = isIncome ? 0 : 1;
 
+    if (dateIndices.length <= targetIndex ||
+        descIndices.length <= targetIndex ||
+        amountIndices.length <= targetIndex) {
+      print("⚠️ [$sheetName] ${isIncome ? '첫 번째(수입)' : '두 번째(지출)'} 헤더('날짜', '내용', '금액')를 찾을 수 없습니다.");
+      return;
+    }
+
+    // 수입/지출 여부에 따라 사용할 최종 열 인덱스 선택
+    final dateIdx = dateIndices[targetIndex];
+    final descIdx = descIndices[targetIndex];
+    final amountIdx = amountIndices[targetIndex];
+
+    // 2. 입력할 데이터 배열 세팅
     final rowData = isIncome
         ? [
             item.formattedDate,
@@ -513,6 +529,51 @@ class HouseholdSheetService {
             item.amount,
           ];
 
+    // 3. 기존 데이터 순회하며 중복 체크 및 타겟 행(targetRow) 계산
+    int targetRow = 2;
+
+    for (int i = 1; i < existingRows.length; i++) {
+      final row = existingRows[i];
+
+      // 해당 영역의 '날짜' 셀에 값이 있는 경우
+      if (row.length > dateIdx && row[dateIdx].toString().trim().isNotEmpty) {
+        targetRow = i + 2; // 다음 빈 행 계산
+
+        // 중복 체크 (날짜, 내용, 금액 비교)
+        if (row.length > amountIdx) {
+          final existingDate = row[dateIdx].toString().trim();
+          final existingDesc = row[descIdx].toString().trim();
+          final existingAmount = row[amountIdx].toString().replaceAll(',', '').trim();
+
+          if (existingDate == item.formattedDate.trim() &&
+              existingDesc == item.description.trim() &&
+              existingAmount == item.amount.toString().trim()) {
+            print("⚠️ 중복 데이터 감지되어 스킵됨: [${item.formattedDate}] ${item.description} (${item.amount}원)");
+            return; // 중복이면 스킵
+          }
+        }
+      }
+    }
+
+    // 4. 숫자 인덱스를 구글 시트 알파벳(A, B, C...)으로 변환
+    String _colToLetter(int colIndex) {
+      String letter = "";
+      while (colIndex >= 0) {
+        letter = String.fromCharCode((colIndex % 26) + 65) + letter;
+        colIndex = (colIndex ~/ 26) - 1;
+      }
+      return letter;
+    }
+
+    // 시작 열('날짜')부터 입력 데이터 개수(rowData.length)만큼의 끝 열을 동적 계산
+    final startColIndex = dateIdx;
+    final endColIndex = startColIndex + rowData.length - 1;
+
+    final startColLetter = _colToLetter(startColIndex);
+    final endColLetter = _colToLetter(endColIndex);
+    final targetRange = "'$sheetName'!$startColLetter$targetRow:$endColLetter$targetRow";
+
+    // 5. 시트 업데이트 요청
     final valueRange = sheets.ValueRange(
       range: targetRange,
       values: [rowData],
@@ -525,8 +586,7 @@ class HouseholdSheetService {
       valueInputOption: "USER_ENTERED",
     );
 
-    print(
-      "✅ [$sheetName] ${isIncome ? '수입' : '지출'} 입력 성공 (행 번호: $targetRow) -> [${item.formattedDate}] ${item.description}: ${item.amount}원 (분류: ${item.category})",
-    );
+    print("✅ [$sheetName] ${isIncome ? '수입' : '지출'} 입력 성공 (행: $targetRow, 범위: $targetRange) -> [${item.formattedDate}] ${item.description}: ${item.amount}원");
   }
+
 }
