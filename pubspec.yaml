@@ -68,8 +68,9 @@ flutter:
 
   # To add assets to your application, add an assets section, like this:
   assets:
-     - assets/card_bin_data.json
      - assets/client_secret.json
+     - assets/credentials.json
+     - assets/card_bin_data.json
      - assets/ledger_ingestion_info.json
 
   # An image asset can refer to one or more resolution-specific "variants", see
