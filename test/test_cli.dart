@@ -1,62 +1,44 @@
+import 'package:googleapis/sheets/v4.dart' as sheets;
+// 인증 및 시트 서비스 관련 파일 import (실제 경로에 맞춰 확인)
 import 'package:household_ledger/services/auth/google_auth.dart';
 import 'package:household_ledger/services/spread_sheet/google_spreadsheet.dart';
+import 'package:household_ledger/services/ledger_ingestion/text_parser_service.dart';
 
 void main() async {
   print("--------------------------------------------------");
   print("📊 가계부 데이터 입력 테스트 시작");
   print("--------------------------------------------------");
 
+  // 1. 서비스 및 인증 객체 생성
   final authManager = GoogleAuthManager();
   final sheetService = HouseholdSheetService();
+  final parserService = TextParserService();
 
-  // 1. 인증 클라이언트 획득
-  final client = await authManager.getClient();
+  // 2. 파서 및 인증 초기화
+  await parserService.init(); // 카테고리 매핑 JSON 로드
+  final client = await authManager.getClient(); // Google OAuth 인증 클라이언트 획득
+  final sheetsApi = sheets.SheetsApi(client); // 또는 sheetService 내부에서 client를 사용하는 방식
 
-  try {
-    // 2. 가계부 시트 ID 획득 (이미 생성되어 있다면 해당 ID를 반환하거나 가져옵니다)
-    final spreadsheetId = await sheetService.setupLedgerSpreadsheet(client);
-    print("📄 사용 중인 Spreadsheet ID: $spreadsheetId");
+  final String spreadsheetId = "YOUR_SPREADSHEET_ID_HERE"; // 실제 구글 시트 ID
 
-    // 3. 테스트용 지출 데이터 입력
-    print("💸 지출 내역 기록 중...");
-    await sheetService.addTransaction(
-      client: client,
-      spreadsheetId: spreadsheetId,
-      item: LedgerItem(
-        date: DateTime.now(),
-        type: TransactionType.expense,
-        description: "점심 식대 (김치찌개)",
-        amount: 10000,
-        payMethod: "신용카드",
-        category: "식비",
-      ),
+  // 3. 테스트 문자열 데이터
+  final List<String> inputLines = [
+    "07/25 신한카드 점심 식비 12000원",
+    "07/26 월급 3000000원 수입",
+    "07/25 신한카드 점심 식비 12000원", // 중복 스킵 테스트용
+  ];
+
+  // 4. 순회 처리
+  for (final line in inputLines) {
+    print("\n📝 처리 입력: $line");
+    await parserService.appendParseSingleLine(
+      sheetsApi,
+      spreadsheetId,
+      line,
     );
-
-    // 4. 테스트용 수입 데이터 입력
-    print("💰 수입 내역 기록 중...");
-    await sheetService.addTransaction(
-      client: client,
-      spreadsheetId: spreadsheetId,
-      item: LedgerItem(
-        date: DateTime.now(),
-        type: TransactionType.income,
-        description: "7월 급여",
-        amount: 3500000,
-        payMethod: "은행입금",
-        category: "주수입",
-      ),
-    );
-
-    print("--------------------------------------------------");
-    print("🎉 데이터 추가 입력 완!");
-    print("--------------------------------------------------");
-
-  } catch (e, stackTrace) {
-    print("❌ 실패! 에러 내용: $e");
-    print("스택 트레이스:\n$stackTrace");
-  } finally {
-    // 5. 모든 연쇄 작업 완료 후 안전하게 종료
-    client.close();
-    print("🔒 인증 클라이언트 연결 종료 완료.");
   }
+
+  print("\n--------------------------------------------------");
+  print("🎉 모든 테스트 처리가 완료되었습니다.");
+  print("--------------------------------------------------");
 }

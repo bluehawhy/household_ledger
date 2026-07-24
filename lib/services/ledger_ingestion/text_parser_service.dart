@@ -1,9 +1,18 @@
 import 'dart:convert';
 import 'dart:io';
-import '../spread_sheet/google_spreadsheet.dart';
+// 1. googleapis sheets 패키지 import (sheets Prefix 지정)
+import 'package:googleapis/sheets/v4.dart' as sheets;
+// 2. appendTransactionData가 작성되어 있는 파일 import
+import 'package:household_ledger/services/spread_sheet/google_spreadsheet.dart';
+
+
+
 
 /// 텍스트 입력을 분석하여 LedgerItem 객체로 변환하는 순수 파서 서비스
 class TextParserService {
+  // 1. sheetService 객체 선언 및 초기화
+  final HouseholdSheetService sheetService = HouseholdSheetService();
+
   Map<String, List<String>> _incomeCategories = {};
   Map<String, List<String>> _expenseCategories = {};
   Map<String, List<String>> _payMethods = {};
@@ -78,6 +87,43 @@ class TextParserService {
       category: category ?? "미입력",
     );
   }
+
+/// 텍스트 파싱 후 appendTransactionData를 호출해 시트에 삽입하는 메서드
+  Future<void> appendParseSingleLine(
+    sheets.SheetsApi sheetsApi,
+    String spreadsheetId,
+    String input,
+  ) async {
+    if (input.trim().isEmpty) return;
+
+    // 1. 단일 줄 텍스트 파싱 -> LedgerItem 객체 생성
+    final LedgerItem item = parseSingleLine(input);
+
+    // 2. 월별 시트 이름 설정 (예: "7월")
+    final sheetName = "${item.date.month}월";
+
+    // 3. 기존 시트 데이터 가져오기 (동적 헤더 및 중복 체크용)
+    List<List<dynamic>> existingRows = [];
+    try {
+      final response = await sheetsApi.spreadsheets.values.get(
+        spreadsheetId,
+        "'$sheetName'!A1:Z1000",
+      );
+      existingRows = response.values ?? [];
+    } catch (e) {
+      print("⚠️ [$sheetName] 시트 읽기 실패 (신규 시트 또는 데이터 없음): $e");
+    }
+
+    // 4. google_spreadsheet.dart 의 appendTransactionData 에 삽입
+    await sheetService.appendTransactionData(
+      sheetsApi,
+      spreadsheetId,
+      sheetName,
+      existingRows,
+      item,
+    );
+  }
+
 
   /// 1. 날짜 추출 (YYYY-MM-DD, YYYY/MM/DD, MM-DD, MM/DD, MM DD, M D, 오늘, 어제 등)
   DateTime _extractDate(String text, {required Function(String) outText}) {

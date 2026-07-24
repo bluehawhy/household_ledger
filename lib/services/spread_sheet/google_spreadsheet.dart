@@ -353,8 +353,7 @@ class HouseholdSheetService {
 
   // --------------------------------------------------------------------------
   // 🔵 [기능 B] 수입 / 지출 내역 신규 입력 로직
-  // --------------------------------------------------------------------------
-
+  
   Future<void> addTransaction({
     required AuthClient client,
     required LedgerItem item,
@@ -382,18 +381,57 @@ class HouseholdSheetService {
 
     final monthSheetName = '${item.date.month}월';
 
+    // 1. 해당 월의 시트 탭 존재 확인 및 생성
     await _ensureMonthSheetExists(sheetsApi, targetSpreadsheetId, monthSheetName);
 
+    // 원본 range 사용 (googleapis 패키지가 내부적으로 URL 인코딩 처리함)
     final range = "'$monthSheetName'!A1:J1000";
-    final response =
-        await sheetsApi.spreadsheets.values.get(targetSpreadsheetId, range);
-    final existingRows = response.values ?? [];
 
+    List<List<dynamic>> existingRows = [];
+
+    try {
+      final response = await sheetsApi.spreadsheets.values.get(
+        targetSpreadsheetId, 
+        range,
+      );
+      existingRows = response.values ?? [];
+    } on sheets.DetailedApiRequestError catch (e) {
+      print("⚠️ [$monthSheetName] 시트 읽기 실패 (${e.status}): ${e.message}");
+      // 읽기 실패 시 데이터 오작동 방지를 위해 중단
+      return;
+    } catch (e) {
+      print("⚠️ [$monthSheetName] 시트 읽기 중 예외 발생: $e");
+      return;
+    }
+
+    // 시트에 헤더도 없는 빈 상태라면 기본 헤더 생성
+    if (existingRows.isEmpty) {
+      final defaultHeader = [
+        "날짜", "수입 분류", "내용", "금액", "", "날짜", "지출 수단", "지출 분류", "내용", "금액"
+      ];
+      
+      final headerValueRange = sheets.ValueRange(
+        range: "'$monthSheetName'!A1:J1",
+        values: [defaultHeader],
+      );
+
+      await sheetsApi.spreadsheets.values.update(
+        headerValueRange,
+        targetSpreadsheetId,
+        "'$monthSheetName'!A1:J1",
+        valueInputOption: "USER_ENTERED",
+      );
+
+      existingRows = [defaultHeader];
+    }
+
+    // 2. 중복 체크
     if (_checkDuplicate(existingRows, item)) {
       print("⚠️ [중복 패스] [${item.formattedDate}] '${item.description}' (${item.amount}원) 내역이 이미 존재합니다.");
       return;
     }
 
+    // 3. 데이터 추가 기입
     await appendTransactionData(
       sheetsApi,
       targetSpreadsheetId,
@@ -578,11 +616,11 @@ class HouseholdSheetService {
       range: targetRange,
       values: [rowData],
     );
-
+    
     await sheetsApi.spreadsheets.values.update(
       valueRange,
       spreadsheetId,
-      targetRange,
+      targetRange, // 👈 Uri.encodeComponent(targetRange) 대신 targetRange 원본 전달
       valueInputOption: "USER_ENTERED",
     );
 
