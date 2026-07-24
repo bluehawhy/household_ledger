@@ -12,7 +12,7 @@ class DesktopGoogleAuthService implements GoogleAuthService {
 
   /// 1. client_secret.json 로드
   Future<ClientId> _loadClientIdFromJson() async {
-    final configFile = File('client_secret.json');
+    final configFile = File('assets/client_secret.json');
 
     if (!await configFile.exists()) {
       throw Exception("❌ 'client_secret.json' 파일을 찾을 수 없습니다!");

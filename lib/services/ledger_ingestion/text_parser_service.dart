@@ -19,9 +19,9 @@ class TextParserService {
   Map<String, dynamic> _binData = {};
 
   /// 루트에 있는 'ledger_ingestion_info.json' 파일을 로드하여 초기화합니다.
-  Future<void> init([String filePath = 'ledger_ingestion_info.json']) async {
+  Future<void> init([String filePath = 'assets/ledger_ingestion_info.json']) async {
     // ➕ [추가] card_bin_data.json 파일 로드 로직
-    final binFile = File('card_bin_data.json');
+    final binFile = File('assets/card_bin_data.json');
     if (await binFile.exists()) {
       try {
         final binJsonString = await binFile.readAsString();
