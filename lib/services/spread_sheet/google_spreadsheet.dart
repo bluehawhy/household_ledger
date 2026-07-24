@@ -1,8 +1,8 @@
 import 'dart:convert';
-import 'dart:io';
 import 'package:googleapis/drive/v3.dart' as drive;
 import 'package:googleapis/sheets/v4.dart' as sheets;
 import 'package:googleapis_auth/googleapis_auth.dart';
+import 'package:household_ledger/services/utils/asset_loader.dart';
 
 // ============================================================================
 // 1. 데이터 모델 및 Enum
@@ -40,16 +40,10 @@ class CategoryMapper {
   bool _isLoaded = false;
   bool get isLoaded => _isLoaded;
 
-  Future<void> loadCategoryJson([String filePath = 'ledger_ingestion_info.json']) async {
-    final file = File(filePath);
-    if (!await file.exists()) {
-      print("⚠️ [CategoryMapper] JSON 파일($filePath)을 찾을 수 없습니다.");
-      _isLoaded = true;
-      return;
-    }
-
+  Future<void> loadCategoryJson([String filePath = 'assets/ledger_ingestion_info.json']) async {
     try {
-      final jsonString = await file.readAsString();
+      // 💡 JsonAssetManager를 통해 플랫폼(Flutter/Desktop) 환경에 맞는 에셋 로더 호출
+      final jsonString = await JsonAssetManager.loadJson(filePath);
       final Map<String, dynamic> data = jsonDecode(jsonString);
 
       if (data.containsKey("수입 분류")) {
@@ -66,10 +60,10 @@ class CategoryMapper {
         );
       }
       _isLoaded = true;
-      print("✅ [CategoryMapper] 카테고리 JSON 데이터 로드 완료!");
+      print("✅ [CategoryMapper] 카테고리 JSON 데이터 로드 완료! ($filePath)");
     } catch (e) {
-      print("❌ [CategoryMapper] JSON 파싱 에러: $e");
-      _isLoaded = true;
+      print("⚠️ [CategoryMapper] JSON 로드/파싱 에러 ($filePath): $e");
+      _isLoaded = true; // 실패 시에도 반복 로드 시도를 막기 위해 flag 처리
     }
   }
 
@@ -97,7 +91,7 @@ class HouseholdSheetService {
   final CategoryMapper categoryMapper = CategoryMapper();
 
   /// 서비스 초기화 시 JSON 설정 파일 로드
-  Future<void> init([String filePath = 'ledger_ingestion_info.json']) async {
+  Future<void> init([String filePath = 'assets/ledger_ingestion_info.json']) async {
     await categoryMapper.loadCategoryJson(filePath);
   }
 
@@ -397,7 +391,6 @@ class HouseholdSheetService {
       existingRows = response.values ?? [];
     } on sheets.DetailedApiRequestError catch (e) {
       print("⚠️ [$monthSheetName] 시트 읽기 실패 (${e.status}): ${e.message}");
-      // 읽기 실패 시 데이터 오작동 방지를 위해 중단
       return;
     } catch (e) {
       print("⚠️ [$monthSheetName] 시트 읽기 중 예외 발생: $e");
@@ -620,7 +613,7 @@ class HouseholdSheetService {
     await sheetsApi.spreadsheets.values.update(
       valueRange,
       spreadsheetId,
-      targetRange, // 👈 Uri.encodeComponent(targetRange) 대신 targetRange 원본 전달
+      targetRange,
       valueInputOption: "USER_ENTERED",
     );
 
