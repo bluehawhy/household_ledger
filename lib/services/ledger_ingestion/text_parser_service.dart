@@ -4,7 +4,7 @@ import 'dart:io';
 import 'package:googleapis/sheets/v4.dart' as sheets;
 // 2. appendTransactionData가 작성되어 있는 파일 import
 import 'package:household_ledger/services/spread_sheet/google_spreadsheet.dart';
-
+import 'package:household_ledger/services/utils/asset_loader.dart';
 
 
 
@@ -20,28 +20,18 @@ class TextParserService {
 
   /// 루트에 있는 'ledger_ingestion_info.json' 파일을 로드하여 초기화합니다.
   Future<void> init([String filePath = 'assets/ledger_ingestion_info.json']) async {
-    // ➕ [추가] card_bin_data.json 파일 로드 로직
-    final binFile = File('assets/card_bin_data.json');
-    if (await binFile.exists()) {
-      try {
-        final binJsonString = await binFile.readAsString();
-        _binData = jsonDecode(binJsonString) as Map<String, dynamic>;
-        print("✅ [TextParserService] BIN 데이터 로드 완료 (${_binData.length}개)");
-      } catch (e) {
-        print("❌ [TextParserService] BIN 데이터 로드 에러: $e");
-      }
-    } else {
-      print("⚠️ [TextParserService] 'card_bin_data.json' 파일을 찾을 수 없습니다.");
-    }
-
-    final file = File(filePath);
-    if (!await file.exists()) {
-      print("⚠️ [TextParserService] '$filePath' 파일을 찾을 수 없습니다. 기본 파싱 알고리즘만 사용됩니다.");
-      return;
-    }
-
+    // 1. BIN 데이터 로드 (JsonAssetManager 사용)
     try {
-      final jsonString = await file.readAsString();
+      final binJsonString = await JsonAssetManager.loadJson('assets/card_bin_data.json');
+      _binData = jsonDecode(binJsonString) as Map<String, dynamic>;
+      print("✅ [TextParserService] BIN 데이터 로드 완료 (${_binData.length}개)");
+    } catch (e) {
+      print("⚠️ [TextParserService] BIN 데이터 로드 실패 (기본값 적용): $e");
+    }
+
+    // 2. 카테고리 매핑 데이터 로드 (JsonAssetManager 사용)
+    try {
+      final jsonString = await JsonAssetManager.loadJson(filePath);
       final Map<String, dynamic> data = jsonDecode(jsonString);
 
       if (data.containsKey("수입 분류")) {
@@ -61,9 +51,11 @@ class TextParserService {
 
       print("✅ [TextParserService] '$filePath' 카테고리 매핑 로드 완료");
     } catch (e) {
-      print("❌ [TextParserService] JSON 로드 에러: $e");
+      print("⚠️ [TextParserService] '$filePath' 로드 실패 (기본 파싱 알고리즘만 사용): $e");
     }
   }
+
+
 
 /// 단일 줄 텍스트를 토큰 기반으로 분석하여 LedgerItem 객체로 변환합니다.
   LedgerItem parseSingleLine(String input) {

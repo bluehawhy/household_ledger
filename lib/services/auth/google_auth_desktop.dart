@@ -2,6 +2,9 @@ import 'dart:convert';
 import 'dart:io';
 import 'package:http/http.dart' as http;
 import 'package:googleapis_auth/auth_io.dart';
+
+// ➕ AssetLoader 임포트 추가
+import 'package:household_ledger/services/utils/asset_loader.dart'; 
 import 'google_auth_stub.dart';
 
 class DesktopGoogleAuthService implements GoogleAuthService {
@@ -10,26 +13,25 @@ class DesktopGoogleAuthService implements GoogleAuthService {
 
   DesktopGoogleAuthService(this.scopes);
 
-  /// 1. client_secret.json 로드
+  /// 1. client_secret.json 로드 (JsonAssetManager 활용)
   Future<ClientId> _loadClientIdFromJson() async {
-    final configFile = File('assets/client_secret.json');
+    try {
+      // 💡 JsonAssetManager를 사용하여 플랫폼 분기 및 Asset 로딩 처리
+      final jsonString = await JsonAssetManager.loadJson('assets/client_secret.json');
+      final Map<String, dynamic> data = jsonDecode(jsonString);
 
-    if (!await configFile.exists()) {
-      throw Exception("❌ 'client_secret.json' 파일을 찾을 수 없습니다!");
+      // 최상위 키가 있든 없든 안전하게 client_id / client_secret 추출
+      final String? clientId = data['client_id'] ?? data['installed']?['client_id'];
+      final String? clientSecret = data['client_secret'] ?? data['installed']?['client_secret'];
+
+      if (clientId == null || clientSecret == null) {
+        throw Exception("❌ client_secret.json 파일 형식이 올바르지 않습니다.");
+      }
+
+      return ClientId(clientId, clientSecret);
+    } catch (e) {
+      throw Exception("❌ 'assets/client_secret.json' 로드 실패: $e");
     }
-
-    final jsonString = await configFile.readAsString();
-    final Map<String, dynamic> data = jsonDecode(jsonString);
-
-    // 최상위 키가 있든 없든 안전하게 client_id / client_secret 추출
-    final String? clientId = data['client_id'] ?? data['installed']?['client_id'];
-    final String? clientSecret = data['client_secret'] ?? data['installed']?['client_secret'];
-
-    if (clientId == null || clientSecret == null) {
-      throw Exception("❌ client_secret.json 파일 형식이 올바르지 않습니다.");
-    }
-
-    return ClientId(clientId, clientSecret);
   }
 
   /// 2. 인증 클라이언트 가져오기 (토큰 캐싱 & 자동 갱신 포함)
@@ -37,7 +39,7 @@ class DesktopGoogleAuthService implements GoogleAuthService {
   Future<AuthClient> getAuthenticatedClient() async {
     final clientId = await _loadClientIdFromJson();
 
-    // 저장된 토큰이 존재하는 경우
+    // 저장된 토큰(credentials.json)이 존재하는 경우
     if (await _tokenFile.exists()) {
       try {
         final jsonString = await _tokenFile.readAsString();

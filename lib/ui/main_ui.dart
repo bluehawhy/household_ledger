@@ -1,8 +1,8 @@
 import 'package:flutter/material.dart';
 
 // 💡 새롭게 정립한 경로로 import를 수정했습니다.
-import '../services/auth/google_auth.dart';
-import '../services/spread_sheet/google_spreadsheet.dart';
+import 'package:household_ledger/services/auth/google_auth.dart';
+import 'package:household_ledger/services/spread_sheet/google_spreadsheet.dart';
 
 class MainUiScreen extends StatefulWidget {
   const MainUiScreen({super.key});
@@ -12,8 +12,8 @@ class MainUiScreen extends StatefulWidget {
 }
 
 class _MainUiScreenState extends State<MainUiScreen> {
-  // 조건부 임포트 매니저(GoogleSheetManager)가 앱/데스크톱 환경을 알아서 판별해 동작합니다.
-  final GoogleSheetManager _sheetManager = GoogleSheetManager();
+  // ⭕️ GoogleSheetManager 대신 실제 클래스명인 HouseholdSheetService로 변경
+  final HouseholdSheetService _sheetManager = HouseholdSheetService();
 
   bool _isLoading = false;
   String _statusMessage = "버튼을 누르면 구글 로그인 후 가계부를 생성합니다.";
@@ -27,7 +27,15 @@ class _MainUiScreenState extends State<MainUiScreen> {
     });
 
     try {
-      final spreadsheetId = await _sheetManager.runHouseholdLedgerSetup();
+      // 1. 서비스 초기화 (필요시 JSON 설정 파일 로드)
+      await _sheetManager.init();
+
+      // 2. 구글로그인을 통해 AuthClient 가져오기
+      final authManager = GoogleAuthManager();
+      final client = await authManager.getClient(); // 또는 getAuthenticatedClient()
+
+      // 3. 올바른 메서드명(setupLedgerSpreadsheet)으로 client를 전달하여 실행
+      final spreadsheetId = await _sheetManager.setupLedgerSpreadsheet(client);
 
       setState(() {
         _spreadsheetId = spreadsheetId;
@@ -43,6 +51,9 @@ class _MainUiScreenState extends State<MainUiScreen> {
       });
     }
   }
+
+
+
 
   @override
   Widget build(BuildContext context) {
