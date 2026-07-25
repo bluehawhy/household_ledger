@@ -1,3 +1,5 @@
+// google_auth_stub.dart
+
 import 'package:googleapis_auth/auth_io.dart';
 
 abstract class GoogleAuthService {
