@@ -1,7 +1,11 @@
+import 'dart:async';
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
-import 'package:googleapis_auth/googleapis_auth.dart';
 
-import 'services/auth/google_auth.dart'; // 💡 google_auth.dart로 변경!
+// 구글 로그인 관련 패키지
+import 'package:google_sign_in/google_sign_in.dart';
+import 'package:google_sign_in_web/web_only.dart' as web;
+import 'package:extension_google_sign_in_as_googleapis_auth/extension_google_sign_in_as_googleapis_auth.dart';
 
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
@@ -18,34 +22,56 @@ class GoogleAuthOnlyTestScreen extends StatefulWidget {
 }
 
 class _GoogleAuthOnlyTestScreenState extends State<GoogleAuthOnlyTestScreen> {
+  final GoogleSignIn _googleSignIn = GoogleSignIn(
+    scopes: [
+      'https://www.googleapis.com/auth/drive.file',
+      'https://www.googleapis.com/auth/spreadsheets',
+    ],
+  );
+
+  StreamSubscription<GoogleSignInAccount?>? _sub;
   String _statusMessage = "버튼을 눌러 구글 인증을 테스트하세요.";
-  bool _isLoading = false;
 
-  Future<void> _testGoogleAuthOnly() async {
-    setState(() => _isLoading = true);
+  @override
+  void initState() {
+    super.initState();
 
-    try {
-      final googleAuthManager = GoogleAuthManager();
-      final client = await googleAuthManager.getClient();
-      
-      // 성공 시 로직
-      print("구글 인증 성공!");
-      client.close(); // 클라이언트 사용 후 닫기
-    } catch (e) {
-      // 사용자가 로그인 취소 / 설정 오류 발생 시 처리
-      print("로그인 중 에러 발생: $e");
-      // 예: ScaffoldMessenger.of(context).showSnackBar(...)
-    } finally {
-      setState(() => _isLoading = false);
-    }
+    // 💡 핵심: 웹 renderButton 클릭 시 또는 로그인 완료 시 스트림 수신
+    _sub = _googleSignIn.onCurrentUserChanged.listen((GoogleSignInAccount? account) async {
+      if (account != null) {
+        setState(() {
+          _statusMessage = "✅ 로그인 성공!\n계정: ${account.email}\n\nGoogle API 클라이언트 생성 중...";
+        });
+
+        // AuthClient(Google API 호환) 생성
+        final httpClient = await _googleSignIn.authenticatedClient();
+        if (httpClient != null) {
+          setState(() {
+            _statusMessage = "🎉 Google API AuthClient 발급 완료!\n이메일: ${account.email}";
+          });
+        }
+      }
+    }, onError: (error) {
+      setState(() {
+        _statusMessage = "💥 로그인 스트림 에러: $error";
+      });
+    });
+
+    // 앱 시작 시 기존 로그인 세션 복구 시도
+    _googleSignIn.signInSilently();
   }
 
+  @override
+  void dispose() {
+    _sub?.cancel(); // 스트림 구독 해제
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text("Google Auth 단독 테스트"),
+        title: const Text("Google Auth 웹 테스트"),
         backgroundColor: Colors.indigo,
         foregroundColor: Colors.white,
       ),
@@ -54,28 +80,25 @@ class _GoogleAuthOnlyTestScreenState extends State<GoogleAuthOnlyTestScreen> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            ElevatedButton.icon(
-              onPressed: _isLoading ? null : _testGoogleAuthOnly,
-              icon: _isLoading
-                  ? const SizedBox(
-                      width: 20,
-                      height: 20,
-                      child: CircularProgressIndicator(
-                        strokeWidth: 2,
-                        color: Colors.white,
-                      ),
-                    )
-                  : const Icon(Icons.security),
-              label: Text(
-                _isLoading ? "인증 진행 중..." : "구글 로그인 단독 테스트",
-                style: const TextStyle(fontSize: 16),
+            if (kIsWeb) ...[
+              // 🌐 웹: 구글 공식 버튼 렌더링
+              Center(
+                child: web.renderButton(
+                  configuration: web.GSIButtonConfiguration(
+                    type: web.GSIButtonType.standard,
+                    theme: web.GSIButtonTheme.outline,
+                    size: web.GSIButtonSize.large,
+                  ),
+                ),
               ),
-              style: ElevatedButton.styleFrom(
-                padding: const EdgeInsets.symmetric(vertical: 16),
-                backgroundColor: Colors.indigo,
-                foregroundColor: Colors.white,
+            ] else ...[
+              // 📱 모바일 / 데스크톱
+              ElevatedButton.icon(
+                onPressed: () => _googleSignIn.signIn(),
+                icon: const Icon(Icons.security),
+                label: const Text("구글 로그인"),
               ),
-            ),
+            ],
             const SizedBox(height: 20),
             Expanded(
               child: Container(

@@ -5,6 +5,7 @@ import 'package:googleapis_auth/auth_io.dart';
 
 import 'google_auth_stub.dart' hide getGoogleAuthService;
 import 'google_auth_stub.dart'
+    if (dart.library.html) 'google_auth_web.dart' // 👈 웹용 조건부 임포트 추가
     if (dart.library.ui) 'google_auth_mobile.dart'
     if (dart.library.io) 'google_auth_desktop.dart'
     show getGoogleAuthService;
