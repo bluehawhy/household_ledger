@@ -1,6 +1,6 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
     <application
-        android:label="household_ledger"
+        android:label="우리가계부"
         android:name="${applicationName}"
         android:icon="@mipmap/ic_launcher">
         <activity
