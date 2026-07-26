@@ -35,7 +35,7 @@ class _MainUIState extends State<MainUI> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: Text('가계부 시작하기')),
+      appBar: AppBar(title: Text('우리가계부')),
       body: Center(
         child: ElevatedButton.icon(
           icon: Icon(Icons.login),

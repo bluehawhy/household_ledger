@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:google_sign_in/google_sign_in.dart';
 import 'ledger_ingestion_ui.dart'; // 같은 폴더(lib/ui)에 있는 경우
+import 'setting_ui.dart';          // 설정 화면 import 추가
 
 class OverviewPage extends StatefulWidget {
   final GoogleSignInAccount googleUser;
@@ -23,17 +24,28 @@ class _OverviewPageState extends State<OverviewPage> {
     );
   }
 
+  // 설정 화면으로 이동하는 함수
+  void _navigateToSettings() {
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (context) => SettingUI(
+          googleUser: widget.googleUser,
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text('가계부 Overview'),
+        title: const Text('우리 가계부 Overview'),
         actions: [
-          // 1. AppBar 우측 상단 입력 아이콘
+          // 1. AppBar 우측 상단 설정 아이콘
           IconButton(
-            icon: const Icon(Icons.add),
-            tooltip: '내역 추가',
-            onPressed: _navigateToIngestion,
+            icon: const Icon(Icons.settings),
+            tooltip: '설정',
+            onPressed: _navigateToSettings,
           ),
         ],
       ),
