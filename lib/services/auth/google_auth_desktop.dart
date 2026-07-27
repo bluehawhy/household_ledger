@@ -1,8 +1,10 @@
+// lib/services/auth/google_auth_desktop.dart
+
 import 'dart:convert';
 import 'dart:io';
-import 'package:google_sign_in/google_sign_in.dart'; // 💡 GoogleSignInAccount 타입을 위해 추가
 import 'package:http/http.dart' as http;
 import 'package:googleapis_auth/auth_io.dart';
+import 'package:google_sign_in/google_sign_in.dart';
 
 // AssetLoader 임포트
 import 'package:household_ledger/services/utils/asset_loader.dart'; 
@@ -11,21 +13,38 @@ import 'google_auth_stub.dart';
 class DesktopGoogleAuthService implements GoogleAuthService {
   @override
   final List<String> scopes;
+  
   final File _tokenFile = File('credentials.json');
 
   DesktopGoogleAuthService(this.scopes);
 
-  // 💡 [추가] 추상 클래스(GoogleAuthService) 인터페이스 구현
-  // 데스크톱 환경에서는 GoogleSignInAccount 대신 OAuth 토큰으로 관리하므로 null을 반환합니다.
+  // 💡 [필수 오버라이드] 데스크톱 환경에서는 GoogleSignInAccount를 쓰지 않으므로 null 반환
+  //@override
+  //dynamic get currentUser => null;
+  // ✅ 수정 후: 명시적으로 반환 타입을 맞춰줍니다.
   @override
-  GoogleSignInAccount? get currentUser => null;
+  GoogleSignInAccount? get currentUser {
+    // 구현 코드 (데스크톱에서 지원하지 않는 경우 null 반환)
+    return null; 
+  }
 
-  /// 1. client_secret.json 로드 (JsonAssetManager 활용)
+  /// 1. client_secret.json 로드 (Pure Dart & Flutter Desktop 둘 다 대응)
   Future<ClientId> _loadClientIdFromJson() async {
     try {
-      final jsonString = await JsonAssetManager.loadJson('assets/client_secret.json');
+      String jsonString;
+      final file = File('assets/client_secret.json');
+
+      // 💡 Pure Dart(dart run) 환경에서는 File로 직접 읽고, 
+      // 번들링된 Flutter 환경에서는 JsonAssetManager 사용
+      if (await file.exists()) {
+        jsonString = await file.readAsString();
+      } else {
+        jsonString = await JsonAssetManager.loadJson('assets/client_secret.json');
+      }
+
       final Map<String, dynamic> data = jsonDecode(jsonString);
 
+      // 최상위 키가 있든 없든 안전하게 client_id / client_secret 추출
       final String? clientId = data['client_id'] ?? data['installed']?['client_id'];
       final String? clientSecret = data['client_secret'] ?? data['installed']?['client_secret'];
 
