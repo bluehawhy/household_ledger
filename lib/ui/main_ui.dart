@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:google_sign_in/google_sign_in.dart';
-import 'overview_ui.dart';
+import 'package:household_ledger/ui/overview_ui.dart';
 
 class MainUI extends StatefulWidget {
   @override
