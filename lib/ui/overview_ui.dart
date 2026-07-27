@@ -2,8 +2,9 @@ import 'package:flutter/material.dart';
 import 'package:google_sign_in/google_sign_in.dart';
 import 'package:fl_chart/fl_chart.dart';
 import 'package:googleapis_auth/googleapis_auth.dart';
+import 'package:intl/intl.dart'; // 💡 원화 포맷팅을 위해 추가
 
-// 서비스 클래스 임포트 (프로젝트 경로에 맞게 확인해 주세요)
+// 서비스 클래스 임포트
 import 'package:household_ledger/services/auth/google_auth.dart';
 import 'package:household_ledger/services/spread_sheet/google_spreadsheet.dart';
 
@@ -28,6 +29,9 @@ class _OverviewPageState extends State<OverviewPage> {
   final GoogleAuthManager _authManager = GoogleAuthManager();
   final HouseholdSheetService _sheetService = HouseholdSheetService();
 
+  // 통화 포맷터 (예: 1,000,000)
+  final NumberFormat _currencyFormatter = NumberFormat('#,###');
+
   // 데이터 상태 변수
   bool _isLoading = true;
   String? _errorMessage;
@@ -45,6 +49,12 @@ class _OverviewPageState extends State<OverviewPage> {
     _loadMonthlyData();
   }
 
+  @override
+  void dispose() {
+    _pageController.dispose(); // 💡 메모리 누수 방지 컨트롤러 해제
+    super.dispose();
+  }
+
   /// 구글 시트에서 이번 달 데이터 불러오기 및 가공
   Future<void> _loadMonthlyData() async {
     setState(() {
@@ -52,14 +62,13 @@ class _OverviewPageState extends State<OverviewPage> {
       _errorMessage = null;
     });
 
-    AuthClient? client;
     try {
       final now = DateTime.now();
       final targetYear = now.year;
       final targetMonth = now.month;
 
-      // 1. Google OAuth 인증 클라이언트 획득
-      client = await _authManager.getClient();
+      // 1. Google OAuth 인증 클라이언트 획득 (웹/모바일 공통 지원)
+      final AuthClient client = await _authManager.getClient();
 
       // 2. 이번 달 수입 / 지출 내역 병렬 조회
       final results = await Future.wait([
@@ -129,14 +138,13 @@ class _OverviewPageState extends State<OverviewPage> {
         });
       }
     } catch (e) {
+      print("데이터 조회 에러: $e");
       if (mounted) {
         setState(() {
-          _errorMessage = "데이터를 불러오는 중 오류가 발생했습니다:\n$e";
+          _errorMessage = "데이터를 불러오는 중 오류가 발생했습니다.\n다시 시도해 주세요.";
           _isLoading = false;
         });
       }
-    } finally {
-      client?.close();
     }
   }
 
@@ -362,7 +370,7 @@ class _OverviewPageState extends State<OverviewPage> {
             child: ListTile(
               title: Text(title, style: const TextStyle(fontWeight: FontWeight.bold)),
               trailing: Text(
-                '${_formatCurrency(totalAmount)} 원',
+                '${_currencyFormatter.format(totalAmount)} 원',
                 style: TextStyle(
                   fontSize: 18,
                   fontWeight: FontWeight.bold,
@@ -412,14 +420,6 @@ class _OverviewPageState extends State<OverviewPage> {
     );
   }
 
-  // 원화 세 자릿수 콤마 포맷
-  String _formatCurrency(int amount) {
-    return amount.toString().replaceAllMapped(
-          RegExp(r'(\d{1,3})(?=(\d{3})+(?!\d))'),
-          (Match m) => '${m[1]},',
-        );
-  }
-
   // 상세 ListTile 생성
   Widget _buildDetailTile(String name, int amount) {
     return Container(
@@ -433,7 +433,7 @@ class _OverviewPageState extends State<OverviewPage> {
         dense: true,
         title: Text(name, style: const TextStyle(fontSize: 15)),
         trailing: Text(
-          '${_formatCurrency(amount)} 원',
+          '${_currencyFormatter.format(amount)} 원',
           style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w600),
         ),
       ),

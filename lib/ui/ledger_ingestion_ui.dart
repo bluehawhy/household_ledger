@@ -1,15 +1,19 @@
+import 'package:flutter/foundation.dart'; // kIsWeb 확인용
 import 'package:flutter/material.dart';
 import 'package:google_sign_in/google_sign_in.dart';
 import 'package:googleapis/sheets/v4.dart' as sheets;
 import 'package:googleapis_auth/googleapis_auth.dart' as auth;
 import 'package:http/http.dart' as http;
 
-// 프로젝트 경로에 맞춰 import 경로를 확인해 주세요!
+// google_auth.dart 파일이 있는 실제 프로젝트 경로로 지정
+import 'package:household_ledger/services/auth/google_auth.dart';
+
+// 프로젝트 경로 확인
 import 'package:household_ledger/services/spread_sheet/google_spreadsheet.dart';
 import 'package:household_ledger/services/ledger_ingestion/text_parser_service.dart';
 
 class LedgerIngestionUI extends StatefulWidget {
-  final GoogleSignInAccount googleUser; // 전달받은 구글 계정 정보
+  final GoogleSignInAccount googleUser;
 
   const LedgerIngestionUI({super.key, required this.googleUser});
 
@@ -27,43 +31,21 @@ class LedgerIngestionUIState extends State<LedgerIngestionUI> {
     super.dispose();
   }
 
-  /// 🚀 AccessToken 기반의 auth.AuthClient 생성 함수
-  /// (Bad state: User is no longer signed in 에러를 방지합니다)
+  /// 🚀 GoogleAuthManager를 통해 크로스 플랫폼 안전한 AuthClient 수급
   Future<auth.AuthClient> _getAuthClient() async {
-    final authentication = await widget.googleUser.authentication;
-    final accessToken = authentication.accessToken;
-
-    if (accessToken == null) {
-      throw Exception("구글 액세스 토큰을 가져올 수 없습니다. 다시 로그인해 주세요.");
-    }
-
-    final credentials = auth.AccessCredentials(
-      auth.AccessToken(
-        'Bearer',
-        accessToken,
-        DateTime.now().toUtc().add(const Duration(hours: 1)),
-      ),
-      null,
-      [
-        'https://www.googleapis.com/auth/spreadsheets',
-        'https://www.googleapis.com/auth/drive.file',
-      ],
-    );
-
-    return auth.authenticatedClient(http.Client(), credentials);
+    final authManager = GoogleAuthManager();
+    return await authManager.getClient();
   }
-
-  /// 🚀 텍스트 분리 전처리 함수 (1줄인 경우와 다중 줄인 경우 구분)
+  
+  /// 🚀 텍스트 분리 전처리 함수
   List<String> _parseInputLines(String rawInput) {
     final trimmedInput = rawInput.trim();
     if (trimmedInput.isEmpty) return [];
 
-    // 개행 문자(\n)가 없으면 1줄 입력으로 간주 -> 그대로 반환
     if (!trimmedInput.contains('\n')) {
       return [trimmedInput];
     }
 
-    // [여러 줄 입력인 경우]
     final singleLineText = trimmedInput
         .replaceAll(RegExp(r'[\r\n]+'), ' ')
         .replaceAll(RegExp(r'\s+'), ' ')
@@ -170,7 +152,7 @@ class LedgerIngestionUIState extends State<LedgerIngestionUI> {
               onPressed: () {
                 Navigator.of(dialogContext).pop();
                 if (isSuccess) {
-                  _inputController.clear(); // 성공 시 입력창 초기화
+                  _inputController.clear();
                 }
               },
               child: const Text('확인', style: TextStyle(fontSize: 16)),
@@ -181,7 +163,6 @@ class LedgerIngestionUIState extends State<LedgerIngestionUI> {
     );
   }
 
-  /// 팝업 내부 카운트 표기를 위한 헬퍼 위젯
   Widget _buildResultRow(String label, String countText, Color? textColor) {
     return Row(
       mainAxisAlignment: MainAxisAlignment.spaceBetween,
@@ -214,7 +195,7 @@ class LedgerIngestionUIState extends State<LedgerIngestionUI> {
     });
 
     try {
-      // 1. GoogleAuthClient 대신 안전한 _getAuthClient() 사용
+      // 1. 크로스 플랫폼 안전한 _getAuthClient() 호출
       final authClient = await _getAuthClient();
 
       // 2. 서비스 인스턴스 생성
@@ -227,14 +208,14 @@ class LedgerIngestionUIState extends State<LedgerIngestionUI> {
       // 3. 연도별 가계부 시트 ID 가져오기
       final spreadsheetId = await sheetService.setupLedgerSpreadsheet(authClient);
 
-      // 4. 입력 텍스트 조건별 정돈 및 분할 (1줄/다중줄 처리)
+      // 4. 입력 텍스트 분할
       final lines = _parseInputLines(rawInput);
 
       int successCount = 0;
       int duplicateCount = 0;
       int failCount = 0;
 
-      // 5. 각 줄별 실행 및 결과 상태 카운트
+      // 5. 각 줄별 데이터 전송
       for (final line in lines) {
         final result = await parserService.appendParseSingleLine(
           sheetsApi,
@@ -295,14 +276,12 @@ class LedgerIngestionUIState extends State<LedgerIngestionUI> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            // 사용자 계정 정보
             Text(
               '계정: ${widget.googleUser.email}',
               style: TextStyle(color: Colors.grey[700], fontSize: 13),
             ),
             const SizedBox(height: 12),
 
-            // 1. 텍스트 입력창
             TextField(
               controller: _inputController,
               maxLines: 5,
@@ -322,7 +301,6 @@ class LedgerIngestionUIState extends State<LedgerIngestionUI> {
             ),
             const SizedBox(height: 16),
 
-            // 2. 전송 버튼
             ElevatedButton.icon(
               onPressed: _isSubmitting ? null : () => submitLedgerEntry(),
               icon: _isSubmitting
