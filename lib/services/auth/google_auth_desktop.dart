@@ -1,26 +1,31 @@
 import 'dart:convert';
 import 'dart:io';
+import 'package:google_sign_in/google_sign_in.dart'; // 💡 GoogleSignInAccount 타입을 위해 추가
 import 'package:http/http.dart' as http;
 import 'package:googleapis_auth/auth_io.dart';
 
-// ➕ AssetLoader 임포트 추가
+// AssetLoader 임포트
 import 'package:household_ledger/services/utils/asset_loader.dart'; 
 import 'google_auth_stub.dart';
 
 class DesktopGoogleAuthService implements GoogleAuthService {
+  @override
   final List<String> scopes;
   final File _tokenFile = File('credentials.json');
 
   DesktopGoogleAuthService(this.scopes);
 
+  // 💡 [추가] 추상 클래스(GoogleAuthService) 인터페이스 구현
+  // 데스크톱 환경에서는 GoogleSignInAccount 대신 OAuth 토큰으로 관리하므로 null을 반환합니다.
+  @override
+  GoogleSignInAccount? get currentUser => null;
+
   /// 1. client_secret.json 로드 (JsonAssetManager 활용)
   Future<ClientId> _loadClientIdFromJson() async {
     try {
-      // 💡 JsonAssetManager를 사용하여 플랫폼 분기 및 Asset 로딩 처리
       final jsonString = await JsonAssetManager.loadJson('assets/client_secret.json');
       final Map<String, dynamic> data = jsonDecode(jsonString);
 
-      // 최상위 키가 있든 없든 안전하게 client_id / client_secret 추출
       final String? clientId = data['client_id'] ?? data['installed']?['client_id'];
       final String? clientSecret = data['client_secret'] ?? data['installed']?['client_secret'];
 

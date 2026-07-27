@@ -9,25 +9,47 @@ GoogleAuthService getGoogleAuthService(List<String> scopes) {
 }
 
 class GoogleAuthWebService implements GoogleAuthService {
+  @override
   final List<String> scopes;
-  late final GoogleSignIn _googleSignIn;
+  
+  static GoogleSignIn? _sharedGoogleSignIn;
 
   GoogleAuthWebService(this.scopes) {
-    _googleSignIn = GoogleSignIn(scopes: scopes);
+    _sharedGoogleSignIn ??= GoogleSignIn(scopes: scopes);
   }
+
+  GoogleSignIn get _googleSignIn => _sharedGoogleSignIn!;
+
+  // 💡 추가: _googleSignIn의 currentUser 반환
+  @override
+  GoogleSignInAccount? get currentUser => _googleSignIn.currentUser;
 
   @override
   Future<AuthClient> getAuthenticatedClient() async {
-    // 1. 먼저 기존 로그인 세션이 있는지 확인 (자동 로그인)
-    GoogleSignInAccount? account = await _googleSignIn.signInSilently();
-
-    // 2. 이미 로그인되어 있다면 AuthClient 생성 후 반환
-    if (account != null) {
-      final AuthClient? client = await _googleSignIn.authenticatedClient();
-      if (client != null) return client;
+    // 1. 이미 메모리에 계정 및 세션이 살아있고 Client 생성이 가능한지 확인
+    if (_googleSignIn.currentUser != null) {
+      final client = await _googleSignIn.authenticatedClient();
+      if (client != null) {
+        return client;
+      }
     }
 
-    // 3. 로그인되어 있지 않다면 에러를 던져 UI에서 공식 구글 버튼을 누르도록 유도
-    throw Exception('로그인이 필요합니다. 웹에서는 구글 공식 로그인 버튼을 이용해 주세요.');
+    // 2. 만약 기존 세션으로 client 생성이 안 된다면 (또는 최초 로그인 시)
+    // FedCM 자동 인증에 의존하지 않고, 사용자가 직접 권한을 승인할 수 있도록 signIn() 호출
+    try {
+      // 이미 진행 중인 silent 세션 정리 후 수동 로그인 팝업 호출
+      final GoogleSignInAccount? account = await _googleSignIn.signIn();
+
+      if (account != null) {
+        final client = await _googleSignIn.authenticatedClient();
+        if (client != null) {
+          return client;
+        }
+      }
+    } catch (e) {
+      print("❌ [Web Auth Error] 구글 팝업 인증 실패: $e");
+    }
+
+    throw Exception('로그인 세션이 만료되었거나 권한 승인이 필요합니다.');
   }
 }

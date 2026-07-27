@@ -67,7 +67,7 @@ class _OverviewPageState extends State<OverviewPage> {
       final targetYear = now.year;
       final targetMonth = now.month;
 
-      // 1. Google OAuth 인증 클라이언트 획득 (웹/모바일 공통 지원)
+      // 1. Google OAuth 인증 클라이언트 획득 (MainUI와 동일한 세션 공유)
       final AuthClient client = await _authManager.getClient();
 
       // 2. 이번 달 수입 / 지출 내역 병렬 조회
@@ -96,13 +96,11 @@ class _OverviewPageState extends State<OverviewPage> {
         final int amount = (item.amount ?? 0).toInt();
         totalExp += amount;
 
-        // 카테고리별 집계
         final String category = (item.category != null && item.category!.isNotEmpty)
             ? item.category!
             : '미분류';
         expCatMap[category] = (expCatMap[category] ?? 0) + amount;
 
-        // 결제 수단별 집계
         if (item.payMethod != null && item.payMethod!.isNotEmpty) {
           final String method = item.payMethod!;
           expMethodMap[method] = (expMethodMap[method] ?? 0) + amount;
@@ -117,7 +115,6 @@ class _OverviewPageState extends State<OverviewPage> {
         final int amount = (item.amount ?? 0).toInt();
         totalInc += amount;
 
-        // 카테고리별 집계
         final String category = (item.category != null && item.category!.isNotEmpty)
             ? item.category!
             : '미분류';
@@ -141,12 +138,15 @@ class _OverviewPageState extends State<OverviewPage> {
       print("데이터 조회 에러: $e");
       if (mounted) {
         setState(() {
-          _errorMessage = "데이터를 불러오는 중 오류가 발생했습니다.\n다시 시도해 주세요.";
+          _errorMessage = "인증 세션이 만료되었거나 데이터를 불러올 수 없습니다.\n다시 로그인해 주세요.";
           _isLoading = false;
         });
       }
     }
   }
+
+
+
 
   // 내역 입력 화면 이동 (입력 후 돌아오면 자동 새로고침)
   Future<void> _navigateToIngestion() async {
