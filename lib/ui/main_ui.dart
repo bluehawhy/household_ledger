@@ -9,6 +9,7 @@ class MainUI extends StatefulWidget {
 
 class _MainUIState extends State<MainUI> {
   final GoogleSignIn _googleSignIn = GoogleSignIn(
+    serverClientId: '498727984793-660afhaj69e1kbo9mdj91v7mo8tpofom.apps.googleusercontent.com',
     scopes: [
       'email',
       'https://www.googleapis.com/auth/spreadsheets', // 구글 시트 권한

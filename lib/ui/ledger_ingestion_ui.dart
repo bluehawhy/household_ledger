@@ -8,36 +8,6 @@ import 'package:http/http.dart' as http;
 import 'package:household_ledger/services/spread_sheet/google_spreadsheet.dart';
 import 'package:household_ledger/services/ledger_ingestion/text_parser_service.dart';
 
-/// 🚀 GoogleAuthClient
-/// HTTP 요청 시마다 GoogleUser의 authHeaders를 불러와
-/// 만료된 Access Token을 백그라운드에서 자동으로 갱신해주는 Custom Client
-class GoogleAuthClient extends http.BaseClient implements auth.AuthClient {
-  final GoogleSignInAccount _user;
-  final http.Client _inner = http.Client();
-
-  GoogleAuthClient(this._user);
-
-  @override
-  Future<http.StreamedResponse> send(http.BaseRequest request) async {
-    // 요청 직전에 authHeaders를 부르면 구글 SDK가 만료 여부를 판단해 알아서 갱신해줍니다.
-    final headers = await _user.authHeaders;
-    request.headers.addAll(headers);
-    return _inner.send(request);
-  }
-
-  @override
-  auth.AccessCredentials get credentials => auth.AccessCredentials(
-        auth.AccessToken('Bearer', '', DateTime.now().toUtc()),
-        null,
-        [],
-      );
-
-  @override
-  void close() {
-    _inner.close();
-  }
-}
-
 class LedgerIngestionUI extends StatefulWidget {
   final GoogleSignInAccount googleUser; // 전달받은 구글 계정 정보
 
@@ -55,6 +25,32 @@ class LedgerIngestionUIState extends State<LedgerIngestionUI> {
   void dispose() {
     _inputController.dispose();
     super.dispose();
+  }
+
+  /// 🚀 AccessToken 기반의 auth.AuthClient 생성 함수
+  /// (Bad state: User is no longer signed in 에러를 방지합니다)
+  Future<auth.AuthClient> _getAuthClient() async {
+    final authentication = await widget.googleUser.authentication;
+    final accessToken = authentication.accessToken;
+
+    if (accessToken == null) {
+      throw Exception("구글 액세스 토큰을 가져올 수 없습니다. 다시 로그인해 주세요.");
+    }
+
+    final credentials = auth.AccessCredentials(
+      auth.AccessToken(
+        'Bearer',
+        accessToken,
+        DateTime.now().toUtc().add(const Duration(hours: 1)),
+      ),
+      null,
+      [
+        'https://www.googleapis.com/auth/spreadsheets',
+        'https://www.googleapis.com/auth/drive.file',
+      ],
+    );
+
+    return auth.authenticatedClient(http.Client(), credentials);
   }
 
   /// 🚀 텍스트 분리 전처리 함수 (1줄인 경우와 다중 줄인 경우 구분)
@@ -218,8 +214,8 @@ class LedgerIngestionUIState extends State<LedgerIngestionUI> {
     });
 
     try {
-      // 1. 전달받은 googleUser 기반으로 자동 토큰 갱신 Client 생성
-      final authClient = GoogleAuthClient(widget.googleUser);
+      // 1. GoogleAuthClient 대신 안전한 _getAuthClient() 사용
+      final authClient = await _getAuthClient();
 
       // 2. 서비스 인스턴스 생성
       final sheetsApi = sheets.SheetsApi(authClient);
@@ -228,7 +224,7 @@ class LedgerIngestionUIState extends State<LedgerIngestionUI> {
 
       await parserService.init();
 
-      // 3. 연도별 가계부 시트 ID 가져오기 (GoogleAuthClient가 auth.AuthClient를 구현함)
+      // 3. 연도별 가계부 시트 ID 가져오기
       final spreadsheetId = await sheetService.setupLedgerSpreadsheet(authClient);
 
       // 4. 입력 텍스트 조건별 정돈 및 분할 (1줄/다중줄 처리)
