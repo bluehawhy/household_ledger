@@ -8,6 +8,36 @@ import 'package:http/http.dart' as http;
 import 'package:household_ledger/services/spread_sheet/google_spreadsheet.dart';
 import 'package:household_ledger/services/ledger_ingestion/text_parser_service.dart';
 
+/// 🚀 GoogleAuthClient
+/// HTTP 요청 시마다 GoogleUser의 authHeaders를 불러와
+/// 만료된 Access Token을 백그라운드에서 자동으로 갱신해주는 Custom Client
+class GoogleAuthClient extends http.BaseClient implements auth.AuthClient {
+  final GoogleSignInAccount _user;
+  final http.Client _inner = http.Client();
+
+  GoogleAuthClient(this._user);
+
+  @override
+  Future<http.StreamedResponse> send(http.BaseRequest request) async {
+    // 요청 직전에 authHeaders를 부르면 구글 SDK가 만료 여부를 판단해 알아서 갱신해줍니다.
+    final headers = await _user.authHeaders;
+    request.headers.addAll(headers);
+    return _inner.send(request);
+  }
+
+  @override
+  auth.AccessCredentials get credentials => auth.AccessCredentials(
+        auth.AccessToken('Bearer', '', DateTime.now().toUtc()),
+        null,
+        [],
+      );
+
+  @override
+  void close() {
+    _inner.close();
+  }
+}
+
 class LedgerIngestionUI extends StatefulWidget {
   final GoogleSignInAccount googleUser; // 전달받은 구글 계정 정보
 
@@ -27,22 +57,51 @@ class LedgerIngestionUIState extends State<LedgerIngestionUI> {
     super.dispose();
   }
 
-  /// 🚀 GoogleSignInAccount로부터 official AuthClient 객체 생성하는 헬퍼 함수
-  Future<auth.AuthClient> _getAuthClient() async {
-    final auth.AccessCredentials credentials = auth.AccessCredentials(
-      auth.AccessToken(
-        'Bearer',
-        (await widget.googleUser.authentication).accessToken!,
-        DateTime.now().toUtc().add(const Duration(hours: 1)),
-      ),
-      null, // Refresh token이 필요 없는 경우 null
-      [
-        'https://www.googleapis.com/auth/spreadsheets',
-        'https://www.googleapis.com/auth/drive.file'
-      ],
+  /// 🚀 텍스트 분리 전처리 함수 (1줄인 경우와 다중 줄인 경우 구분)
+  List<String> _parseInputLines(String rawInput) {
+    final trimmedInput = rawInput.trim();
+    if (trimmedInput.isEmpty) return [];
+
+    // 개행 문자(\n)가 없으면 1줄 입력으로 간주 -> 그대로 반환
+    if (!trimmedInput.contains('\n')) {
+      return [trimmedInput];
+    }
+
+    // [여러 줄 입력인 경우]
+    final singleLineText = trimmedInput
+        .replaceAll(RegExp(r'[\r\n]+'), ' ')
+        .replaceAll(RegExp(r'\s+'), ' ')
+        .trim();
+
+    final dateRegex = RegExp(
+      r'(?:\b\d{4}[./-]\d{1,2}[./-]\d{1,2}\b|\b\d{1,2}[./-]\d{1,2}\b)',
     );
 
-    return auth.authenticatedClient(http.Client(), credentials);
+    final List<String> resultLines = [];
+    final matches = dateRegex.allMatches(singleLineText).toList();
+
+    if (matches.isEmpty) {
+      return [singleLineText];
+    }
+
+    for (int i = 0; i < matches.length; i++) {
+      final int start = matches[i].start;
+      final int end = (i + 1 < matches.length) ? matches[i + 1].start : singleLineText.length;
+
+      if (i == 0 && start > 0) {
+        final prefix = singleLineText.substring(0, start).trim();
+        if (prefix.isNotEmpty) {
+          resultLines.add(prefix);
+        }
+      }
+
+      final lineSegment = singleLineText.substring(start, end).trim();
+      if (lineSegment.isNotEmpty) {
+        resultLines.add(lineSegment);
+      }
+    }
+
+    return resultLines;
   }
 
   /// 🚀 결과 안내 팝업(Dialog)을 표시하는 함수
@@ -145,9 +204,9 @@ class LedgerIngestionUIState extends State<LedgerIngestionUI> {
 
   /// 🚀 전송 이벤트 전용 함수
   Future<void> submitLedgerEntry([String? text]) async {
-    final inputText = text ?? _inputController.text.trim();
+    final rawInput = text ?? _inputController.text;
 
-    if (inputText.isEmpty) {
+    if (rawInput.trim().isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('내용을 입력해 주세요.')),
       );
@@ -159,25 +218,21 @@ class LedgerIngestionUIState extends State<LedgerIngestionUI> {
     });
 
     try {
-      // 1. GoogleSignInAccount -> AuthClient 변환
-      final auth.AuthClient authenticatedClient = await _getAuthClient();
+      // 1. 전달받은 googleUser 기반으로 자동 토큰 갱신 Client 생성
+      final authClient = GoogleAuthClient(widget.googleUser);
 
       // 2. 서비스 인스턴스 생성
-      final sheetsApi = sheets.SheetsApi(authenticatedClient);
+      final sheetsApi = sheets.SheetsApi(authClient);
       final sheetService = HouseholdSheetService();
       final parserService = TextParserService();
 
       await parserService.init();
 
-      // 3. 연도별 가계부 시트 ID 가져오기
-      final spreadsheetId = await sheetService.setupLedgerSpreadsheet(authenticatedClient);
+      // 3. 연도별 가계부 시트 ID 가져오기 (GoogleAuthClient가 auth.AuthClient를 구현함)
+      final spreadsheetId = await sheetService.setupLedgerSpreadsheet(authClient);
 
-      // 4. 입력 텍스트 줄바꿈 분리
-      final lines = inputText
-          .split('\n')
-          .map((e) => e.trim())
-          .where((e) => e.isNotEmpty)
-          .toList();
+      // 4. 입력 텍스트 조건별 정돈 및 분할 (1줄/다중줄 처리)
+      final lines = _parseInputLines(rawInput);
 
       int successCount = 0;
       int duplicateCount = 0;

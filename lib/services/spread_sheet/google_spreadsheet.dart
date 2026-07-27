@@ -626,7 +626,121 @@ class HouseholdSheetService {
       return false;
     }
   }
+  
+  // --------------------------------------------------------------------------
+  // 🟢 [기능 C] 월별 수입 / 지출 내역 조회 로직
+  // --------------------------------------------------------------------------
+  /// 특정 연월의 지출 내역 리스트 조회
+  Future<List<LedgerItem>> getMonthlyExpenses({
+    required AuthClient client,
+    required int year,
+    required int month,
+  }) async {
+    return await getMonthlyTransactions(
+      client: client,
+      year: year,
+      month: month,
+      type: TransactionType.expense,
+    );
+  }
 
+  /// 특정 연월의 수입 내역 리스트 조회
+  Future<List<LedgerItem>> getMonthlyIncomes({
+    required AuthClient client,
+    required int year,
+    required int month,
+  }) async {
+    return await getMonthlyTransactions(
+      client: client,
+      year: year,
+      month: month,
+      type: TransactionType.income,
+    );
+  }
+
+  /// 특정 연월의 수입 또는 지출 내역 리스트 조회 (통합 메서드)
+  Future<List<LedgerItem>> getMonthlyTransactions({
+    required AuthClient client,
+    required int year,
+    required int month,
+    required TransactionType type,
+  }) async {
+    final sheetsApi = sheets.SheetsApi(client);
+
+    // 1. 해당 연도의 가계부 스프레드시트 ID 자동 탐색/생성
+    final targetSpreadsheetId = await setupLedgerSpreadsheetForYear(client, year);
+
+    final monthSheetName = '${month}월';
+    final range = "'$monthSheetName'!A1:J1000";
+
+    try {
+      final response = await sheetsApi.spreadsheets.values.get(
+        targetSpreadsheetId,
+        range,
+      );
+
+      final rows = response.values;
+      if (rows == null || rows.length <= 1) {
+        return []; // 데이터가 없거나 헤더만 있는 경우
+      }
+
+      final isIncome = (type == TransactionType.income);
+      final List<LedgerItem> items = [];
+
+      // 인덱스 설정
+      // 수입(A~D): 날짜(0), 분류(1), 내용(2), 금액(3)
+      // 지출(F~J): 날짜(5), 지출수단(6), 분류(7), 내용(8), 금액(9)
+      final dateIdx = isIncome ? 0 : 5;
+      final payMethodIdx = isIncome ? null : 6;
+      final categoryIdx = isIncome ? 1 : 7;
+      final descIdx = isIncome ? 2 : 8;
+      final amountIdx = isIncome ? 3 : 9;
+
+      // 2행(헤더 제외)부터 순회하며 데이터 추출
+      for (int i = 1; i < rows.length; i++) {
+        final row = rows[i];
+
+        // 필수 데이터 영역 유효성 확인
+        if (row.length <= amountIdx) continue;
+
+        final rawDate = row[dateIdx].toString().trim();
+        final rawDesc = row[descIdx].toString().trim();
+        final rawAmount = row[amountIdx].toString().replaceAll(',', '').trim();
+
+        // 날짜나 금액, 내용이 비어있는 행은 패스
+        if (rawDate.isEmpty || rawAmount.isEmpty || rawDesc.isEmpty) continue;
+
+        final parsedAmount = int.tryParse(rawAmount);
+        final parsedDate = DateTime.tryParse(rawDate);
+
+        if (parsedAmount == null || parsedDate == null) continue;
+
+        final category = row.length > categoryIdx ? row[categoryIdx].toString().trim() : "미입력";
+        final payMethod = (payMethodIdx != null && row.length > payMethodIdx)
+            ? row[payMethodIdx].toString().trim()
+            : null;
+
+        items.add(
+          LedgerItem(
+            date: parsedDate,
+            type: type,
+            description: rawDesc,
+            amount: parsedAmount,
+            category: category,
+            payMethod: payMethod,
+          ),
+        );
+      }
+
+      return items;
+    } on sheets.DetailedApiRequestError catch (e) {
+      print("⚠️ [$monthSheetName] 시트 읽기 실패 (${e.status}): ${e.message}");
+      return [];
+    } catch (e) {
+      print("⚠️ [$monthSheetName] 내역 조회 중 예외 발생: $e");
+      return [];
+    }
+  }
 
 
 }
