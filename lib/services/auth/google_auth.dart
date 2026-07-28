@@ -8,7 +8,7 @@ import 'google_auth_stub.dart' hide getGoogleAuthService;
 import 'google_auth_stub.dart'
     if (dart.library.html) 'google_auth_web.dart'
     if (dart.library.ui) 'google_auth_mobile.dart'
-    if (dart.library.io) 'google_auth_desktop.dart'
+    if (dart.library.io) 'google_auth_dart.dart'
     show getGoogleAuthService;
 
 export 'google_auth_stub.dart';
