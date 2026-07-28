@@ -1,13 +1,13 @@
-// google_auth_stub.dart
-import 'package:google_sign_in/google_sign_in.dart'; // 💡 추가
 import 'package:googleapis_auth/auth_io.dart';
 
 abstract class GoogleAuthService {
   final List<String> scopes;
+
   GoogleAuthService(this.scopes);
 
-  // 💡 추가: 현재 로그인된 계정 정보를 가져오는 getter
-  GoogleSignInAccount? get currentUser;
+  /// Flutter에서는 GoogleSignInAccount,
+  /// CLI에서는 null 또는 다른 객체를 사용할 수 있도록 Object? 사용
+  Object? get currentUser;
 
   Future<AuthClient> getAuthenticatedClient();
 }

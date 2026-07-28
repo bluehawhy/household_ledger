@@ -2,140 +2,148 @@
 
 import 'dart:convert';
 import 'dart:io';
-import 'package:http/http.dart' as http;
-import 'package:googleapis_auth/auth_io.dart';
-import 'package:google_sign_in/google_sign_in.dart';
 
-// AssetLoader 임포트
-import 'package:household_ledger/services/utils/asset_loader.dart'; 
+import 'package:googleapis_auth/auth_io.dart';
+import 'package:http/http.dart' as http;
+
 import 'google_auth_stub.dart';
 
 class DesktopGoogleAuthService implements GoogleAuthService {
   @override
   final List<String> scopes;
-  
-  final File _tokenFile = File('credentials.json');
 
   DesktopGoogleAuthService(this.scopes);
 
-  // 💡 [필수 오버라이드] 데스크톱 환경에서는 GoogleSignInAccount를 쓰지 않으므로 null 반환
-  //@override
-  //dynamic get currentUser => null;
-  // ✅ 수정 후: 명시적으로 반환 타입을 맞춰줍니다.
+  final File _tokenFile = File('credentials.json');
+
   @override
-  GoogleSignInAccount? get currentUser {
-    // 구현 코드 (데스크톱에서 지원하지 않는 경우 null 반환)
-    return null; 
-  }
+  Object? get currentUser => null;
 
-  /// 1. client_secret.json 로드 (Pure Dart & Flutter Desktop 둘 다 대응)
+  /// client_secret.json 읽기
+  ///
+  /// Pure Dart에서는 File로 직접 읽는다.
   Future<ClientId> _loadClientIdFromJson() async {
-    try {
-      String jsonString;
-      final file = File('assets/client_secret.json');
+    final file = File('assets/client_secret.json');
 
-      // 💡 Pure Dart(dart run) 환경에서는 File로 직접 읽고, 
-      // 번들링된 Flutter 환경에서는 JsonAssetManager 사용
-      if (await file.exists()) {
-        jsonString = await file.readAsString();
-      } else {
-        jsonString = await JsonAssetManager.loadJson('assets/client_secret.json');
-      }
-
-      final Map<String, dynamic> data = jsonDecode(jsonString);
-
-      // 최상위 키가 있든 없든 안전하게 client_id / client_secret 추출
-      final String? clientId = data['client_id'] ?? data['installed']?['client_id'];
-      final String? clientSecret = data['client_secret'] ?? data['installed']?['client_secret'];
-
-      if (clientId == null || clientSecret == null) {
-        throw Exception("❌ client_secret.json 파일 형식이 올바르지 않습니다.");
-      }
-
-      return ClientId(clientId, clientSecret);
-    } catch (e) {
-      throw Exception("❌ 'assets/client_secret.json' 로드 실패: $e");
+    if (!await file.exists()) {
+      throw Exception(
+        "assets/client_secret.json 파일을 찾을 수 없습니다.\n"
+        "현재 작업 폴더: ${Directory.current.path}",
+      );
     }
+
+    final jsonString = await file.readAsString();
+    final Map<String, dynamic> data = jsonDecode(jsonString);
+
+    final clientId =
+        data['client_id'] ?? data['installed']?['client_id'];
+
+    final clientSecret =
+        data['client_secret'] ?? data['installed']?['client_secret'];
+
+    if (clientId == null || clientSecret == null) {
+      throw Exception("client_secret.json 형식이 올바르지 않습니다.");
+    }
+
+    return ClientId(clientId, clientSecret);
   }
 
-  /// 2. 인증 클라이언트 가져오기 (토큰 캐싱 & 자동 갱신 포함)
   @override
   Future<AuthClient> getAuthenticatedClient() async {
     final clientId = await _loadClientIdFromJson();
 
-    // 저장된 토큰(credentials.json)이 존재하는 경우
+    // credentials.json이 있으면 재사용
     if (await _tokenFile.exists()) {
       try {
-        final jsonString = await _tokenFile.readAsString();
-        final jsonMap = jsonDecode(jsonString) as Map<String, dynamic>;
+        final jsonMap = jsonDecode(await _tokenFile.readAsString())
+            as Map<String, dynamic>;
 
-        final accessTokenMap = jsonMap['accessToken'] as Map<String, dynamic>?;
+        final accessTokenMap =
+            jsonMap['accessToken'] as Map<String, dynamic>?;
+
         if (accessTokenMap != null) {
-          final tokenType = accessTokenMap['type'] as String? ?? 'Bearer';
-          final data = accessTokenMap['data'] as String;
-          final expiryStr = accessTokenMap['expiry'] as String;
-          final expiry = DateTime.parse(expiryStr);
-
-          final accessToken = AccessToken(tokenType, data, expiry);
-          final refreshToken = jsonMap['refreshToken'] as String?;
-          final idToken = jsonMap['idToken'] as String?;
-          final savedScopes = (jsonMap['scopes'] as List<dynamic>?)?.cast<String>() ?? scopes;
-
           var credentials = AccessCredentials(
-            accessToken,
-            refreshToken,
-            savedScopes,
-            idToken: idToken,
+            AccessToken(
+              accessTokenMap['type'] ?? 'Bearer',
+              accessTokenMap['data'],
+              DateTime.parse(accessTokenMap['expiry']),
+            ),
+            jsonMap['refreshToken'],
+            (jsonMap['scopes'] as List<dynamic>?)
+                    ?.cast<String>() ??
+                scopes,
+            idToken: jsonMap['idToken'],
           );
 
           final httpClient = http.Client();
 
-          // 토큰 만료 시 자동 갱신
           if (credentials.accessToken.hasExpired) {
-            if (refreshToken != null) {
-              print("🔄 토큰이 만료되어 자동으로 갱신합니다...");
-              credentials = await refreshCredentials(clientId, credentials, httpClient);
-              await _tokenFile.writeAsString(jsonEncode(credentials.toJson()));
-            } else {
-              throw Exception("Refresh token이 없습니다.");
+            if (credentials.refreshToken == null) {
+              throw Exception("Refresh Token이 없습니다.");
             }
+
+            print("🔄 AccessToken 갱신 중...");
+
+            credentials = await refreshCredentials(
+              clientId,
+              credentials,
+              httpClient,
+            );
+
+            await _tokenFile.writeAsString(
+              jsonEncode(credentials.toJson()),
+            );
           }
 
-          print("🔑 캐시된 인증 토큰(credentials.json)을 사용하여 로그인을 완료했습니다!");
-          return authenticatedClient(httpClient, credentials);
+          print("✅ 저장된 인증 정보를 사용합니다.");
+
+          return authenticatedClient(
+            httpClient,
+            credentials,
+          );
         }
       } catch (e) {
-        print("⚠️ 저장된 토큰 처리 중 오류 발생 ($e). 브라우저 로그인을 재진행합니다.");
+        print("⚠ 기존 credentials.json 사용 실패");
+        print(e);
       }
     }
 
-    // 최초 로그인 시 브라우저 호출
-    print("\n🌐 최초 인증이 필요합니다. 브라우저를 열어 구글 로그인을 진행합니다...");
+    // 최초 로그인
+    print("🌐 브라우저 인증을 시작합니다...");
+
     final client = await clientViaUserConsent(
       clientId,
       scopes,
-      (url) => _openBrowser(url),
+      _openBrowser,
     );
 
-    // 새 토큰 파일로 저장
-    final credentials = client.credentials;
-    await _tokenFile.writeAsString(jsonEncode(credentials.toJson()));
-    print("💾 새로운 인증 토큰이 '${_tokenFile.path}' 파일에 저장되었습니다!");
+    await _tokenFile.writeAsString(
+      jsonEncode(client.credentials.toJson()),
+    );
+
+    print("💾 credentials.json 저장 완료");
 
     return client;
   }
 
-  /// 3. 운영체제별 브라우저 열기
   void _openBrowser(String url) {
     if (Platform.isWindows) {
-      Process.run('rundll32', ['url.dll,FileProtocolHandler', url]);
+      Process.run(
+        'rundll32',
+        ['url.dll,FileProtocolHandler', url],
+      );
     } else if (Platform.isMacOS) {
       Process.run('open', [url]);
     } else if (Platform.isLinux) {
       Process.run('xdg-open', [url]);
+    } else {
+      print(url);
     }
   }
 }
 
-GoogleAuthService getGoogleAuthService(List<String> scopes) =>
-    DesktopGoogleAuthService(scopes);
+GoogleAuthService getGoogleAuthService(
+  List<String> scopes,
+) {
+  return DesktopGoogleAuthService(scopes);
+}
