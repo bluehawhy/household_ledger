@@ -1,5 +1,5 @@
 import 'package:household_ledger/services/spread_sheet/google_spreadsheet.dart';
-import 'package:household_ledger/services/ledger_ingestion/text_parser_service.dart';
+import 'package:household_ledger/services/ledger_ingestion/single_entry_service.dart';
 
 void main() async {
   print("==================================================");

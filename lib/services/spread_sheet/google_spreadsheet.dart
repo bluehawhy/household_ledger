@@ -3,32 +3,8 @@ import 'package:googleapis/drive/v3.dart' as drive;
 import 'package:googleapis/sheets/v4.dart' as sheets;
 import 'package:googleapis_auth/googleapis_auth.dart';
 import 'package:household_ledger/services/utils/asset_loader.dart';
+import 'package:household_ledger/services/ledger_ingestion/ledger_item.dart';
 
-// ============================================================================
-// 1. 데이터 모델 및 Enum
-// ============================================================================
-enum TransactionType { income, expense }
-
-class LedgerItem {
-  final DateTime date; // 입력 날짜
-  final TransactionType type; // 수입 or 지출
-  final String? payMethod; // 지출 수단
-  final String description; // 내용
-  final int amount; // 금액
-  String? category; // 분류
-
-  LedgerItem({
-    required this.date,
-    required this.type,
-    required this.description,
-    required this.amount,
-    this.payMethod,
-    this.category,
-  });
-
-  String get formattedDate =>
-      "${date.year}-${date.month.toString().padLeft(2, '0')}-${date.day.toString().padLeft(2, '0')}";
-}
 
 // ============================================================================
 // 2. JSON 기반 카테고리 자동 매퍼

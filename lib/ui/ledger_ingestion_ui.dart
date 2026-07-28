@@ -1,15 +1,13 @@
-import 'package:flutter/foundation.dart'; // kIsWeb 확인용
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:google_sign_in/google_sign_in.dart';
 import 'package:googleapis/sheets/v4.dart' as sheets;
 import 'package:googleapis_auth/googleapis_auth.dart' as auth;
-import 'package:http/http.dart' as http;
 
-// google_auth.dart 파일이 있는 실제 프로젝트 경로로 지정
 import 'package:household_ledger/services/auth/google_auth.dart';
-
-// 프로젝트 경로 확인
+import 'package:household_ledger/services/ledger_ingestion/ledger_item.dart';
 import 'package:household_ledger/services/spread_sheet/google_spreadsheet.dart';
+import 'package:household_ledger/services/ledger_ingestion/single_entry_service.dart';
 import 'package:household_ledger/services/ledger_ingestion/text_parser_service.dart';
 
 class LedgerIngestionUI extends StatefulWidget {
@@ -35,51 +33,6 @@ class LedgerIngestionUIState extends State<LedgerIngestionUI> {
   Future<auth.AuthClient> _getAuthClient() async {
     final authManager = GoogleAuthManager();
     return await authManager.getClient();
-  }
-  
-  /// 🚀 텍스트 분리 전처리 함수
-  List<String> _parseInputLines(String rawInput) {
-    final trimmedInput = rawInput.trim();
-    if (trimmedInput.isEmpty) return [];
-
-    if (!trimmedInput.contains('\n')) {
-      return [trimmedInput];
-    }
-
-    final singleLineText = trimmedInput
-        .replaceAll(RegExp(r'[\r\n]+'), ' ')
-        .replaceAll(RegExp(r'\s+'), ' ')
-        .trim();
-
-    final dateRegex = RegExp(
-      r'(?:\b\d{4}[./-]\d{1,2}[./-]\d{1,2}\b|\b\d{1,2}[./-]\d{1,2}\b)',
-    );
-
-    final List<String> resultLines = [];
-    final matches = dateRegex.allMatches(singleLineText).toList();
-
-    if (matches.isEmpty) {
-      return [singleLineText];
-    }
-
-    for (int i = 0; i < matches.length; i++) {
-      final int start = matches[i].start;
-      final int end = (i + 1 < matches.length) ? matches[i + 1].start : singleLineText.length;
-
-      if (i == 0 && start > 0) {
-        final prefix = singleLineText.substring(0, start).trim();
-        if (prefix.isNotEmpty) {
-          resultLines.add(prefix);
-        }
-      }
-
-      final lineSegment = singleLineText.substring(start, end).trim();
-      if (lineSegment.isNotEmpty) {
-        resultLines.add(lineSegment);
-      }
-    }
-
-    return resultLines;
   }
 
   /// 🚀 결과 안내 팝업(Dialog)을 표시하는 함수
@@ -201,26 +154,31 @@ class LedgerIngestionUIState extends State<LedgerIngestionUI> {
       // 2. 서비스 인스턴스 생성
       final sheetsApi = sheets.SheetsApi(authClient);
       final sheetService = HouseholdSheetService();
-      final parserService = TextParserService();
+      final textParserService = TextParserService();
+      final singleEntryService = SingleEntryService();
 
-      await parserService.init();
+      await textParserService.init();
 
       // 3. 연도별 가계부 시트 ID 가져오기
       final spreadsheetId = await sheetService.setupLedgerSpreadsheet(authClient);
 
-      // 4. 입력 텍스트 분할
-      final lines = _parseInputLines(rawInput);
+      // 4. 입력 텍스트 전처리/분할 (TextParserService 내부 로직 사용)
+      final List<String> lines = textParserService.parseInputLines(rawInput);
 
       int successCount = 0;
       int duplicateCount = 0;
       int failCount = 0;
 
-      // 5. 각 줄별 데이터 전송
+      // 5. 각 줄별 데이터 파싱 및 시트 전송
       for (final line in lines) {
-        final result = await parserService.appendParseSingleLine(
+        // 5-1. TextParserService에서 텍스트를 Map으로 파싱
+        final Map<String, dynamic> itemMap = textParserService.parseSingleLineToMap(line);
+
+        // 5-2. SingleEntryService를 통해 시트에 저장
+        final ParseResult result = await singleEntryService.appendParseSingleLine(
           sheetsApi,
           spreadsheetId,
-          line,
+          itemMap,
         );
 
         if (result == ParseResult.success) {
