@@ -1,3 +1,4 @@
+//test/test_cli.dart
 import 'package:googleapis/sheets/v4.dart' as sheets;
 // 프로젝트 경로에 맞게 import 확인해주세요!
 import 'package:household_ledger/services/auth/google_auth.dart';
