@@ -1,4 +1,4 @@
-// lib/services/auth/google_auth_desktop.dart
+// lib/services/auth/google_auth_dart.dart
 
 import 'dart:convert';
 import 'dart:io';
