@@ -6,7 +6,7 @@ import 'package:googleapis_auth/googleapis_auth.dart' as auth;
 
 import 'package:household_ledger/services/auth/google_auth.dart';
 import 'package:household_ledger/services/ledger_ingestion/ledger_item.dart';
-import 'package:household_ledger/services/spread_sheet/google_spreadsheet.dart';
+import 'package:household_ledger/services/google_drive/google_spreadsheet.dart';
 import 'package:household_ledger/services/ledger_ingestion/single_entry_service.dart';
 import 'package:household_ledger/services/ledger_ingestion/text_parser_service.dart';
 

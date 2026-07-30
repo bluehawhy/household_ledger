@@ -1,6 +1,6 @@
 import 'package:googleapis/sheets/v4.dart' as sheets;
 import 'package:household_ledger/services/ledger_ingestion/ledger_item.dart'; // 👈 import 추가
-import 'package:household_ledger/services/spread_sheet/google_spreadsheet.dart';
+import 'package:household_ledger/services/google_drive/google_spreadsheet.dart';
 
 /// 파싱 및 시트 데이터 추가 결과 상태
 enum ParseResult {

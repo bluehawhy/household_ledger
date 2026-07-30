@@ -6,7 +6,7 @@ import 'package:intl/intl.dart'; // 💡 원화 포맷팅을 위해 추가
 
 // 서비스 클래스 임포트
 import 'package:household_ledger/services/auth/google_auth.dart';
-import 'package:household_ledger/services/spread_sheet/google_spreadsheet.dart';
+import 'package:household_ledger/services/google_drive/google_spreadsheet.dart';
 
 import 'ledger_ingestion_ui.dart';
 import 'setting_ui.dart';

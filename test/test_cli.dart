@@ -2,7 +2,7 @@ import 'package:googleapis/sheets/v4.dart' as sheets;
 
 // 프로젝트 경로에 맞게 import 확인해주세요!
 import 'package:household_ledger/services/auth/google_auth.dart';
-import 'package:household_ledger/services/spread_sheet/google_spreadsheet.dart';
+import 'package:household_ledger/services/google_drive/google_spreadsheet.dart';
 import 'package:household_ledger/services/ledger_ingestion/text_parser_service.dart';
 import 'package:household_ledger/services/ledger_ingestion/single_entry_service.dart';
 import 'package:household_ledger/services/ledger_ingestion/ledger_item.dart';

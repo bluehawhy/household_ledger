@@ -200,7 +200,7 @@ class TextParserService {
       if (type == TransactionType.expense && _isIncomeType(token)) {
         type = TransactionType.income;
         category ??= _matchCategory(token, type: TransactionType.income);
-        continue;
+        //continue;
       }
 
       // 결제 수단 (payMethod가 미지정일 때만 시도)
@@ -208,7 +208,7 @@ class TextParserService {
         final foundPayMethod = _matchPayMethod(token);
         if (foundPayMethod != null) {
           payMethod = foundPayMethod;
-          //continue;
+          continue;
         }
       }
 
@@ -338,13 +338,35 @@ class TextParserService {
     return '신용카드';
   }
 
+
   String? _matchCategory(String token, {required TransactionType type}) {
     final categories = (type == TransactionType.income) ? _incomeCategories : _expenseCategories;
-    for (var entry in categories.entries) {
-      for (var keyword in entry.value) {
-        if (token.contains(keyword)) return entry.key;
+
+    // -----------------------------------------------------------------
+    // [1단계] 카테고리 Key 이름 자체와 먼저 매칭 (최우선)
+    // 예: 토큰이 "식비", "식비내역", "고정지출" 등 카테고리명을 직접 포함하는 경우
+    // -----------------------------------------------------------------
+    for (var categoryKey in categories.keys) {
+      if (token.contains(categoryKey)) {
+        return categoryKey; // 리스트 검색 없이 바로 카테고리명 반환!
       }
     }
+
+    // -----------------------------------------------------------------
+    // [2단계] Key에 걸리지 않았을 때만 리스트(entry.value) 키워드 검색
+    // 예: "스타벅스" -> "식비", "쿠팡" -> "생활비"
+    // -----------------------------------------------------------------
+    for (var entry in categories.entries) {
+      for (var keyword in entry.value) {
+        if (token.contains(keyword)) {
+          return entry.key;
+        }
+      }
+    }
+
     return null;
   }
+
+
+
 }
