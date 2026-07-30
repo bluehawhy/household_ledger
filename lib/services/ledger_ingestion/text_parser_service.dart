@@ -44,8 +44,10 @@ class TransactionParserConfig {
 /// 텍스트 입력을 분석하여 Map 형태의 가계부 데이터로 변환하는 서비스
 class TextParserService {
   // 1. 필수 정규식 패턴 (날짜, 카드번호, 금액 등 구조 추출용)
-  static final _fullDatePattern = RegExp(r'^(\d{4})[-/.](0?[1-9]|1[0-2])[-/.](0?[1-9]|[12]\d|3[01])$');
-  static final _shortDatePattern = RegExp(r'^(0?[1-9]|1[0-2])[-/.](0?[1-9]|[12]\d|3[01])$');
+  //static final _fullDatePattern = RegExp(r'^(\d{4})[-/.](0?[1-9]|1[0-2])[-/.](0?[1-9]|[12]\d|3[01])$');
+  //static final _shortDatePattern = RegExp(r'^(0?[1-9]|1[0-2])[-/.](0?[1-9]|[12]\d|3[01])$');
+  static final _fullDatePattern = RegExp(r'^(\d{4})[.-/](\d{1,2})[.-/](\d{1,2})(?:\s+\d{1,2}:\d{1,2})?$');
+  static final _shortDatePattern = RegExp(r'^(\d{1,2})[.-/](\d{1,2})(?:\s+\d{1,2}:\d{1,2})?$');
   static final _cardNoPattern = RegExp(r'^\d{4}[-*\s]+[\d*]{2,4}[-*\s]+[\d*]{2,4}[-*\s]+\d{4}$');
   // 기존: static final _amountPattern = RegExp(r'^(\d{1,3}(,\d{3})*|\d+)(원)?$');
   static final _amountPattern = RegExp(r'^-?\s*(\d{1,3}(,\d{3})*|\d+)(원)?$');
@@ -238,9 +240,25 @@ class TextParserService {
         if (category != null) break;
       }
     }
+    
+    // -------------------------------------------------------------
+    // [4단계: 적요(Description) 최종 조합 - 최상위 그룹 Key 명칭만 필터링]
+    // -------------------------------------------------------------
+    // 최상위 그룹 이름(Key)들만 모아서 적요 제거 대상 목록 생성
+    // (예: "주수입", "부수입", "현금", "신용카드", "식비", "교통비", "의료비" 등)
+    final Set<String> groupHeaderKeys = {
+      ..._incomeCategories.keys,  // 수입 분류 Key 목록 ("주수입", "부수입" 등)
+      ..._payMethods.keys,        // 지출 수단 Key 목록 ("현금", "신용카드" 등)
+      ..._expenseCategories.keys, // 지출 분류 Key 목록 ("식비", "교통비", "의료비" 등)
+    };
+
+    // 토큰이 그룹 대표 이름(Key)과 토씨 하나 틀리지 않고 일치할 때만 적요에서 제외
+    final cleanedTokens = remainingTokens.where((t) {
+      return !groupHeaderKeys.contains(t.trim());
+    }).toList();
 
     // 적요(Description) 조합
-    String description = remainingTokens.join(' ').trim();
+    String description = cleanedTokens.join(' ').trim();
     if (description.isEmpty) {
       description = category ?? "미지정 내역";
     }

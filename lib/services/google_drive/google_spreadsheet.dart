@@ -410,6 +410,67 @@ class HouseholdSheetService {
     );
   }
 
+  /// 월별 다중 항목을 단 1회의 API 호출로 일괄 전송(Batch Append)하는 메서드
+  Future<bool> appendTransactionBatch(
+    sheets.SheetsApi sheetsApi,
+    String spreadsheetId,
+    String sheetName,
+    List<LedgerItem> items,
+  ) async {
+    if (items.isEmpty) return true;
+
+    try {
+      final List<List<Object?>> valueList = items.map((item) {
+        final formattedDate =
+            "${item.date.year}-${item.date.month.toString().padLeft(2, '0')}-${item.date.day.toString().padLeft(2, '0')}";
+
+        // 💡 수입 키워드 포함 여부 또는 type 값 비교로 수입 판단
+        final incomeKeywords = ["수입", "입금", "월급", "환불"];
+        final String categoryStr = item.category ?? '';
+        
+        final bool isIncome = incomeKeywords.any((keyword) => categoryStr.contains(keyword));
+
+        if (isIncome) {
+          // 🟢 수입 항목: A~D열 사용 (E~J열은 빈값)
+          return <Object?>[
+            formattedDate,            // A: 날짜
+            item.category ?? '주수입', // B: 수입 분류
+            item.description,         // C: 내용
+            item.amount,              // D: 금액
+            "",                       // E: (구분선 공백)
+            "", "", "", "", ""        // F~J: 지출 영역 빈값
+          ];
+        } else {
+          // 🔴 지출 항목: F~J열 사용 (A~E열은 빈값)
+          return <Object?>[
+            "", "", "", "", "",       // A~E: 수입 영역 & 구분선 빈값
+            formattedDate,            // F: 날짜
+            item.payMethod ?? '카드', // G: 지출 수단
+            item.category ?? '미분류', // H: 지출 분류
+            item.description,         // I: 내용
+            item.amount,              // J: 금액
+          ];
+        }
+      }).toList();
+
+      final valueRange = sheets.ValueRange(values: valueList);
+
+      await sheetsApi.spreadsheets.values.append(
+        valueRange,
+        spreadsheetId,
+        "'$sheetName'!A1",
+        valueInputOption: "USER_ENTERED",
+      );
+
+      return true;
+    } catch (e) {
+      print("❌ [appendTransactionBatch] ($sheetName) 배치 전송 실패: $e");
+      return false;
+    }
+  }
+
+
+
   Future<void> _ensureMonthSheetExists(
     sheets.SheetsApi sheetsApi,
     String spreadsheetId,

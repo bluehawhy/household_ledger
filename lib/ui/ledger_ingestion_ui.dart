@@ -7,7 +7,7 @@ import 'package:googleapis_auth/googleapis_auth.dart' as auth;
 import 'package:household_ledger/services/auth/google_auth.dart';
 import 'package:household_ledger/services/ledger_ingestion/ledger_item.dart';
 import 'package:household_ledger/services/google_drive/google_spreadsheet.dart';
-import 'package:household_ledger/services/ledger_ingestion/single_entry_service.dart';
+import 'package:household_ledger/services/ledger_ingestion/entry_input_service.dart';
 import 'package:household_ledger/services/ledger_ingestion/text_parser_service.dart';
 
 class LedgerIngestionUI extends StatefulWidget {
@@ -155,43 +155,63 @@ class LedgerIngestionUIState extends State<LedgerIngestionUI> {
       final sheetsApi = sheets.SheetsApi(authClient);
       final sheetService = HouseholdSheetService();
       final textParserService = TextParserService();
-      final singleEntryService = SingleEntryService();
 
       await textParserService.init();
 
       // 3. 연도별 가계부 시트 ID 가져오기
       final spreadsheetId = await sheetService.setupLedgerSpreadsheet(authClient);
 
-      // 4. 입력 텍스트 전처리/분할 (TextParserService 내부 로직 사용)
+      // 4. 입력 텍스트 전처리/분할
       final List<String> lines = textParserService.parseInputLines(rawInput);
 
       int successCount = 0;
       int duplicateCount = 0;
       int failCount = 0;
 
-      // 5. 각 줄별 데이터 파싱 및 시트 전송
-      for (final line in lines) {
-        // 5-1. TextParserService에서 텍스트를 Map으로 파싱
-        final Map<String, dynamic> itemMap = textParserService.parseSingleLineToMap(line);
+      // -----------------------------------------------------------------
+      // 🔀 [분기] 1줄이면 SingleEntryService, 2줄 이상이면 MultiEntryService
+      // -----------------------------------------------------------------
+      if (lines.length == 1) {
+        // 1줄 단일 처리
+        final singleEntryService = SingleEntryService();
+        final Map<String, dynamic> itemMap = textParserService.parseSingleLineToMap(lines.first);
 
-        // 5-2. SingleEntryService를 통해 시트에 저장
         final ParseResult result = await singleEntryService.appendParseSingleLine(
           sheetsApi,
           spreadsheetId,
           itemMap,
         );
 
-        if (result == ParseResult.success) {
-          successCount++;
-        } else if (result == ParseResult.duplicate) {
-          duplicateCount++;
-        } else {
-          failCount++;
-        }
+        if (result == ParseResult.success) successCount++;
+        else if (result == ParseResult.duplicate) duplicateCount++;
+        else failCount++;
+
+      } else if (lines.length > 1) {
+        // 2줄 이상 다중 캐시/배치 처리 (429 API 쿼터 에러 방지)
+        final multiEntryService = MultiEntryService();
+
+        // 전체 라인을 Map 리스트로 먼저 변환
+        final List<Map<String, dynamic>> itemMaps = lines
+            .map((line) => textParserService.parseSingleLineToMap(line))
+            .toList();
+
+        final resultMap = await multiEntryService.appendParseMultiLines(
+          sheetsApi,
+          spreadsheetId,
+          itemMaps,
+        );
+
+        successCount = resultMap[ParseResult.success] ?? 0;
+        duplicateCount = resultMap[ParseResult.duplicate] ?? 0;
+        failCount = resultMap[ParseResult.fail] ?? 0;
       }
 
-      // 6. 결과 팝업 표시
+      // 5. 성공 시 입력창 초기화 및 결과 팝업 표시
       if (mounted) {
+        if (successCount > 0) {
+          _inputController.clear();
+        }
+
         _showResultDialog(
           isSuccess: true,
           total: lines.length,

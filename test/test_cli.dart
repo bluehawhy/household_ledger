@@ -4,7 +4,7 @@ import 'package:googleapis/sheets/v4.dart' as sheets;
 import 'package:household_ledger/services/auth/google_auth.dart';
 import 'package:household_ledger/services/google_drive/google_spreadsheet.dart';
 import 'package:household_ledger/services/ledger_ingestion/text_parser_service.dart';
-import 'package:household_ledger/services/ledger_ingestion/single_entry_service.dart';
+import 'package:household_ledger/services/ledger_ingestion/entry_input_service.dart';
 import 'package:household_ledger/services/ledger_ingestion/ledger_item.dart';
 
 void main() async {
