@@ -45,6 +45,9 @@ dependencies:
   url_launcher: ^6.3.2
   fl_chart: ^0.68.0
   http: ^1.6.0
+  path_provider: ^2.1.2 # 최신 버전 사용
+  shared_preferences: ^2.2.2 # 웹 & 앱 공통 Key-Value 저장소
+
 
 dev_dependencies:
   flutter_test:

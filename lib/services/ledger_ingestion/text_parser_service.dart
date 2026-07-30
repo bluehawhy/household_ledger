@@ -47,7 +47,8 @@ class TextParserService {
   static final _fullDatePattern = RegExp(r'^(\d{4})[-/.](0?[1-9]|1[0-2])[-/.](0?[1-9]|[12]\d|3[01])$');
   static final _shortDatePattern = RegExp(r'^(0?[1-9]|1[0-2])[-/.](0?[1-9]|[12]\d|3[01])$');
   static final _cardNoPattern = RegExp(r'^\d{4}[-*\s]+[\d*]{2,4}[-*\s]+[\d*]{2,4}[-*\s]+\d{4}$');
-  static final _amountPattern = RegExp(r'^(\d{1,3}(,\d{3})*|\d+)(원)?$');
+  // 기존: static final _amountPattern = RegExp(r'^(\d{1,3}(,\d{3})*|\d+)(원)?$');
+  static final _amountPattern = RegExp(r'^-?\s*(\d{1,3}(,\d{3})*|\d+)(원)?$');
 
   // Config 객체 선언
   TransactionParserConfig _config = TransactionParserConfig();
@@ -293,9 +294,17 @@ class TextParserService {
   int? _parseAmount(String token) {
     final match = _amountPattern.firstMatch(token);
     if (match != null) {
-      String rawNumStr = match.group(1)!.replaceAll(',', '');
-      int parsedNum = int.parse(rawNumStr);
-      if (parsedNum > 0) return parsedNum;
+      // 1. 토큰 전체(match.group(0) 또는 token)에서 '원', 콤마(,), 공백 등을 제거하고
+      //    부호(-)와 숫자만 남깁니다.
+      String cleanStr = token.replaceAll(RegExp(r'[^\d-]'), '');
+      
+      // 2. 숫자로 변환합니다. (-21,800 -> -21800)
+      int? parsedNum = int.tryParse(cleanStr);
+      
+      // 3. 변환 성공 시 0원을 제외한 모든 금액(양수 및 음수)을 반환합니다.
+      if (parsedNum != null && parsedNum != 0) {
+        return parsedNum;
+      }
     }
     return null;
   }
