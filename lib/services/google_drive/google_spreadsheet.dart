@@ -411,6 +411,7 @@ class HouseholdSheetService {
   }
 
   /// 월별 다중 항목을 단 1회의 API 호출로 일괄 전송(Batch Append)하는 메서드
+  /// 월별 다중 항목을 수입/지출 영역에 각각 맞춰 단 1회의 API 호출로 일괄 전송(Batch Update)하는 메서드
   Future<bool> appendTransactionBatch(
     sheets.SheetsApi sheetsApi,
     String spreadsheetId,
@@ -420,48 +421,121 @@ class HouseholdSheetService {
     if (items.isEmpty) return true;
 
     try {
-      final List<List<Object?>> valueList = items.map((item) {
-        final formattedDate =
-            "${item.date.year}-${item.date.month.toString().padLeft(2, '0')}-${item.date.day.toString().padLeft(2, '0')}";
+      // 1. 해당 월의 기존 시트 데이터 읽어오기
+      final range = "'$sheetName'!A1:J1000";
+      final response = await sheetsApi.spreadsheets.values.get(
+        spreadsheetId,
+        range,
+      );
+      final List<List<dynamic>> existingRows = response.values ?? [];
 
-        // 💡 수입 키워드 포함 여부 또는 type 값 비교로 수입 판단
+      // 시트가 아예 비어있으면 헤더 작성
+      if (existingRows.isEmpty) {
+        final defaultHeader = [
+          "날짜", "수입 분류", "내용", "금액", "", "날짜", "지출 수단", "지출 분류", "내용", "금액"
+        ];
+        await sheetsApi.spreadsheets.values.update(
+          sheets.ValueRange(values: [defaultHeader]),
+          spreadsheetId,
+          "'$sheetName'!A1:J1",
+          valueInputOption: "USER_ENTERED",
+        );
+        existingRows.add(defaultHeader);
+      }
+
+      // 2. 수입(A~D: Index 0)과 지출(F~J: Index 5)의 마지막 데이터 입력 행(0-based) 계산
+      int lastIncomeRowIdx = 0;  // 0은 헤더 위치(1행)를 의미
+      int lastExpenseRowIdx = 0;
+
+      for (int i = 1; i < existingRows.length; i++) {
+        final row = existingRows[i];
+        
+        // A열(수입 날짜)에 값이 있는 경우
+        if (row.isNotEmpty && row[0].toString().trim().isNotEmpty) {
+          lastIncomeRowIdx = i;
+        }
+        
+        // F열(지출 날짜)에 값이 있는 경우 (Index 5)
+        if (row.length > 5 && row[5].toString().trim().isNotEmpty) {
+          lastExpenseRowIdx = i;
+        }
+      }
+
+      // 3. 수입/지출 각각 분리하여 입력할 Rows 및 대상 Range 계산
+      final List<List<Object?>> incomeRows = [];
+      final List<List<Object?>> expenseRows = [];
+
+      for (final item in items) {
+        final formattedDate = item.formattedDate;
+
+        // type 파싱 또는 키워드로 수입 여부 판단
         final incomeKeywords = ["수입", "입금", "월급", "환불"];
         final String categoryStr = item.category ?? '';
-        
-        final bool isIncome = incomeKeywords.any((keyword) => categoryStr.contains(keyword));
+        final bool isIncome = item.type == TransactionType.income ||
+            incomeKeywords.any((keyword) => categoryStr.contains(keyword));
 
         if (isIncome) {
-          // 🟢 수입 항목: A~D열 사용 (E~J열은 빈값)
-          return <Object?>[
+          incomeRows.add([
             formattedDate,            // A: 날짜
             item.category ?? '주수입', // B: 수입 분류
             item.description,         // C: 내용
             item.amount,              // D: 금액
-            "",                       // E: (구분선 공백)
-            "", "", "", "", ""        // F~J: 지출 영역 빈값
-          ];
+          ]);
         } else {
-          // 🔴 지출 항목: F~J열 사용 (A~E열은 빈값)
-          return <Object?>[
-            "", "", "", "", "",       // A~E: 수입 영역 & 구분선 빈값
+          expenseRows.add([
             formattedDate,            // F: 날짜
             item.payMethod ?? '카드', // G: 지출 수단
             item.category ?? '미분류', // H: 지출 분류
             item.description,         // I: 내용
             item.amount,              // J: 금액
-          ];
+          ]);
         }
-      }).toList();
+      }
 
-      final valueRange = sheets.ValueRange(values: valueList);
+      final List<sheets.ValueRange> valueRangesToUpdate = [];
 
-      await sheetsApi.spreadsheets.values.append(
-        valueRange,
-        spreadsheetId,
-        "'$sheetName'!A1",
-        valueInputOption: "USER_ENTERED",
-      );
+      // 4. 수입 데이터 범위 계산 (A~D열)
+      if (incomeRows.isNotEmpty) {
+        final startRow = lastIncomeRowIdx + 2; // 1-based index 및 다음 행(+1)
+        final endRow = startRow + incomeRows.length - 1;
+        final incomeRange = "'$sheetName'!A$startRow:D$endRow";
 
+        valueRangesToUpdate.add(
+          sheets.ValueRange(
+            range: incomeRange,
+            values: incomeRows,
+          ),
+        );
+      }
+
+      // 5. 지출 데이터 범위 계산 (F~J열)
+      if (expenseRows.isNotEmpty) {
+        final startRow = lastExpenseRowIdx + 2; // 1-based index 및 다음 행(+1)
+        final endRow = startRow + expenseRows.length - 1;
+        final expenseRange = "'$sheetName'!F$startRow:J$endRow";
+
+        valueRangesToUpdate.add(
+          sheets.ValueRange(
+            range: expenseRange,
+            values: expenseRows,
+          ),
+        );
+      }
+
+      // 6. batchUpdate API를 사용해 단 1번의 호출로 수입/지출을 각 위치에 동시 업데이트
+      if (valueRangesToUpdate.isNotEmpty) {
+        final batchRequest = sheets.BatchUpdateValuesRequest(
+          valueInputOption: "USER_ENTERED",
+          data: valueRangesToUpdate,
+        );
+
+        await sheetsApi.spreadsheets.values.batchUpdate(
+          batchRequest,
+          spreadsheetId,
+        );
+      }
+
+      print("✅ [$sheetName] 배치 입력 완료 (수입: ${incomeRows.length}건, 지출: ${expenseRows.length}건)");
       return true;
     } catch (e) {
       print("❌ [appendTransactionBatch] ($sheetName) 배치 전송 실패: $e");
