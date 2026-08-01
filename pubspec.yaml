@@ -47,6 +47,7 @@ dependencies:
   http: ^1.6.0
   path_provider: ^2.1.2 # 최신 버전 사용
   shared_preferences: ^2.2.2 # 웹 & 앱 공통 Key-Value 저장소
+  flutter_launcher_icons: ^0.13.1
 
 
 dev_dependencies:
@@ -102,3 +103,9 @@ flutter:
   #
   # For details regarding fonts from package dependencies,
   # see https://flutter.dev/to/font-from-package
+
+# 아이콘 설정 추가 (pubspec.yaml 파일 맨 아래에 작성)
+flutter_launcher_icons:
+  android: true
+  ios: true
+  image_path: "assets/icon/app_icon.png" # 준비한 이미지 경로
