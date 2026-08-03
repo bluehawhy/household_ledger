@@ -1,7 +1,6 @@
-// lib/ui/main_ui.dart
 import 'package:flutter/material.dart';
-import 'package:google_sign_in/google_sign_in.dart';
-import 'package:household_ledger/services/auth/google_auth.dart'; // 💡 AuthManager 임포트
+import 'package:shared_preferences/shared_preferences.dart';
+import 'package:household_ledger/services/auth/google_auth.dart';
 import 'package:household_ledger/ui/overview_ui.dart';
 
 class MainUI extends StatefulWidget {
@@ -12,49 +11,69 @@ class MainUI extends StatefulWidget {
 }
 
 class _MainUIState extends State<MainUI> {
-  bool _isLoading = false;
-  
-  // 💡 구글 인증 공통 매니저 사용
+  bool _isLoading = true;
   final GoogleAuthManager _authManager = GoogleAuthManager();
 
   @override
   void initState() {
     super.initState();
-    _checkSilentSignIn();
+    _checkSignInState();
   }
 
-  /// 기존 로그인 세션 및 OAuth AccessToken 유효성 검증
-  Future<void> _checkSilentSignIn() async {
-    setState(() => _isLoading = true);
+  /// 💡 저장된 세션 확인 및 구글 서버 인증 유효성 실시간 검증
+  Future<void> _checkSignInState() async {
+    final prefs = await SharedPreferences.getInstance();
+    final bool isLoggedInFlag = prefs.getBool('is_logged_in') ?? false;
+
     try {
-      // 💡 1. 현재 이미 메모리에 살아있는 GoogleSignIn 계정이 있는지 먼저 확인
-      final account = _authManager.currentUser;
-      
-      if (account != null) {
-        // 이미 로그인 정보가 살아있다면 Overview로 이동
-        if (mounted) _navigateToOverview(account);
+      if (!isLoggedInFlag) {
+        if (mounted) setState(() => _isLoading = false);
         return;
       }
-      
-      // 웹 특성상 silent 로그인만으로는 Scope 토큰을 얻지 못하므로 
-      // 강제로 getClient()를 불러 팝업을 띄우는 대신, 조용히 로그인 버튼을 보여줍니다.
-      print("💡 웹 환경: 수동 로그인 버튼 클릭이 필요합니다.");
+
+      // 1. 기존 세션 Silent Sign-In 시도
+      var account = _authManager.currentUser ?? await _authManager.signInSilently();
+
+      if (account != null) {
+        // 2. [핵심] 실제 구글 서버 인증 클라이언트 획득 시도 (비밀번호 변경/강제로그아웃 시 에러 발생)
+        final client = await _authManager.getClient();
+        
+        if (mounted) {
+          _navigateToOverview(account);
+          return;
+        }
+      }
+
+      // 세션이 유효하지 않으면 정리
+      await _clearSession(prefs);
     } catch (e) {
-      print("자동 로그인 세션 없음 (수동 로그인 유도): $e");
+      print("세션 만료 또는 무효화된 로그인 (수동 로그인 유도): $e");
+      await _clearSession(prefs);
     } finally {
-      if (mounted) setState(() => _isLoading = false);
+      if (mounted) {
+        setState(() => _isLoading = false);
+      }
     }
   }
 
-  /// 수동 로그인 버튼 클릭 시 (사용자 액션 -> OAuth 팝업 열림)
+  Future<void> _clearSession(SharedPreferences prefs) async {
+    await prefs.remove('is_logged_in');
+    try {
+      await _authManager.signOut();
+    } catch (_) {}
+  }
+
+  /// 수동 로그인 버튼 클릭 시
   Future<void> _handleSignIn() async {
     setState(() => _isLoading = true);
     try {
-      // 버튼 클릭 시에는 정상적으로 OAuth 팝업 및 권한 요청 수행
       final client = await _authManager.getClient();
       final account = _authManager.currentUser;
 
       if (account != null && mounted) {
+        final prefs = await SharedPreferences.getInstance();
+        await prefs.setBool('is_logged_in', true);
+
         _navigateToOverview(account);
       }
     } catch (error) {
@@ -65,11 +84,13 @@ class _MainUIState extends State<MainUI> {
         );
       }
     } finally {
-      if (mounted) setState(() => _isLoading = false);
+      if (mounted) {
+        setState(() => _isLoading = false);
+      }
     }
   }
 
-  void _navigateToOverview(GoogleSignInAccount account) {
+  void _navigateToOverview(dynamic account) {
     Navigator.of(context).pushReplacement(
       MaterialPageRoute(
         builder: (context) => OverviewPage(googleUser: account),
