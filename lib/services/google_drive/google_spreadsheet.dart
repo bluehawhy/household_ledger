@@ -153,7 +153,7 @@ class HouseholdSheetService {
 
     for (int month = 1; month <= 12; month++) {
       sheetsList.add(
-        sheets.Sheet(properties: sheets.SheetProperties(title: '${month}월')),
+        sheets.Sheet(properties: sheets.SheetProperties(title: '$month월')),
       );
     }
 
@@ -227,7 +227,7 @@ class HouseholdSheetService {
       final rowNum = incomeStartRow + 1 + i;
       List<String> row = [category];
       for (int m = 1; m <= 12; m++) {
-        row.add("=SUMIF('${m}월'!\$B:\$B, \$A$rowNum, '${m}월'!\$D:\$D)");
+        row.add("=SUMIF('$m월'!\$B:\$B, \$A$rowNum, '$m월'!\$D:\$D)");
       }
       row.add("=SUM(B$rowNum:M$rowNum)");
       incomeTable.add(row);
@@ -239,7 +239,7 @@ class HouseholdSheetService {
     List<String> incomeTotalRow = ["합계"];
     for (int colIdx = 0; colIdx < 13; colIdx++) {
       final colLetter = String.fromCharCode(66 + colIdx);
-      incomeTotalRow.add("=SUM(${colLetter}$incomeFirstDataRow:${colLetter}$incomeLastDataRow)");
+      incomeTotalRow.add("=SUM($colLetter$incomeFirstDataRow:$colLetter$incomeLastDataRow)");
     }
     incomeTable.add(incomeTotalRow);
 
@@ -269,7 +269,7 @@ class HouseholdSheetService {
       final rowNum = expenseStartRow + 1 + i;
       List<String> row = [category];
       for (int m = 1; m <= 12; m++) {
-        row.add("=SUMIF('${m}월'!\$H:\$H, \$A$rowNum, '${m}월'!\$J:\$J)");
+        row.add("=SUMIF('$m월'!\$H:\$H, \$A$rowNum, '$m월'!\$J:\$J)");
       }
       row.add("=SUM(B$rowNum:M$rowNum)");
       expenseTable.add(row);
@@ -281,7 +281,7 @@ class HouseholdSheetService {
     List<String> expenseTotalRow = ["합계"];
     for (int colIdx = 0; colIdx < 13; colIdx++) {
       final colLetter = String.fromCharCode(66 + colIdx);
-      expenseTotalRow.add("=SUM(${colLetter}$expenseFirstDataRow:${colLetter}$expenseLastDataRow)");
+      expenseTotalRow.add("=SUM($colLetter$expenseFirstDataRow:$colLetter$expenseLastDataRow)");
     }
     expenseTable.add(expenseTotalRow);
 
@@ -298,7 +298,7 @@ class HouseholdSheetService {
     // 4. 1~12월 시트 헤더 생성
     // ------------------------------------------------------------------------
     for (int month = 1; month <= 12; month++) {
-      final sheetName = '${month}월';
+      final sheetName = '$month월';
       data.add(
         sheets.ValueRange(
           range: "'$sheetName'!A1:J1",
@@ -781,7 +781,7 @@ class HouseholdSheetService {
     // 1. 해당 연도의 가계부 스프레드시트 ID 자동 탐색/생성
     final targetSpreadsheetId = await setupLedgerSpreadsheetForYear(client, year);
 
-    final monthSheetName = '${month}월';
+    final monthSheetName = '$month월';
     final range = "'$monthSheetName'!A1:J1000";
 
     try {
