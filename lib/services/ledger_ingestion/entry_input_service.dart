@@ -205,8 +205,6 @@ class MultiEntryService {
 }
 
 
-
-
 /// HouseholdSheetService 파일에 추가할 일괄(Batch) Append 함수
 Future<bool> appendTransactionBatch(
   sheets.SheetsApi sheetsApi,
@@ -248,3 +246,4 @@ Future<bool> appendTransactionBatch(
     return false;
   }
 }
+
