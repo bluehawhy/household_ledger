@@ -48,6 +48,7 @@ dependencies:
   path_provider: ^2.1.2 # 최신 버전 사용
   shared_preferences: ^2.2.2 # 웹 & 앱 공통 Key-Value 저장소
   flutter_launcher_icons: ^0.13.1
+  mocktail: ^1.0.4  # 또는 mockito
 
 
 dev_dependencies:

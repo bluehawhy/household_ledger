@@ -7,9 +7,10 @@ import 'package:household_ledger/services/ledger_ingestion/ledger_item.dart';
 
 
 // ============================================================================
-// 2. JSON 기반 카테고리 자동 매퍼
+// JSON 기반 카테고리 자동 매퍼
 // ============================================================================
 class CategoryMapper {
+  // 카테고리명 -> 키워드 리스트 매핑
   Map<String, List<String>> incomeCategories = {};
   Map<String, List<String>> expenseCategories = {};
 
@@ -18,97 +19,124 @@ class CategoryMapper {
 
   Future<void> loadCategoryJson([String filePath = 'assets/ledger_ingestion_info.json']) async {
     try {
-      // 💡 JsonAssetManager를 통해 플랫폼(Flutter/Desktop) 환경에 맞는 에셋 로더 호출
       final jsonString = await JsonAssetManager.loadJson(filePath);
       final Map<String, dynamic> data = jsonDecode(jsonString);
 
-      if (data.containsKey("수입 분류")) {
-        final Map<String, dynamic> income = data["수입 분류"];
-        incomeCategories = income.map(
-          (key, value) => MapEntry(key, List<String>.from(value)),
-        );
+      // 💡 단일 리스트 or 중첩 Map 구조에 관계없이 모든 키워드를 Flatten(평탄화) 추출하는 헬퍼 함수
+      Map<String, List<String>> parseCategoryStructure(dynamic rawData) {
+        final Map<String, List<String>> resultMap = {};
+
+        if (rawData is! Map<String, dynamic>) return resultMap;
+
+        rawData.forEach((key, value) {
+          if (value is List) {
+            // 1단계 구조인 경우: "급여": ["월급", "급여"]
+            resultMap[key] = value.map((e) => e.toString()).toList();
+          } else if (value is Map<String, dynamic>) {
+            // 2단계 중첩 구조인 경우: "식비": { "식당/외식": ["점심", "식당"] }
+            value.forEach((subKey, subValue) {
+              if (subValue is List) {
+                resultMap[subKey] = subValue.map((e) => e.toString()).toList();
+              }
+            });
+          }
+        });
+
+        return resultMap;
       }
 
-      if (data.containsKey("지출 분류")) {
-        final Map<String, dynamic> expense = data["지출 분류"];
-        expenseCategories = expense.map(
-          (key, value) => MapEntry(key, List<String>.from(value)),
-        );
+      // 수입 분류 파싱
+      if (data.containsKey("수입 분류")) {
+        incomeCategories = parseCategoryStructure(data["수입 분류"]);
       }
+
+      // 지출 분류 파싱 (2단계 중첩 Map 대응)
+      if (data.containsKey("지출 분류")) {
+        expenseCategories = parseCategoryStructure(data["지출 분류"]);
+      }
+
       _isLoaded = true;
-      print("✅ [CategoryMapper] 카테고리 JSON 데이터 로드 완료! ($filePath)");
+      print("✅ [CategoryMapper] 카테고리 JSON 데이터 로드 완료! (수입: ${incomeCategories.length}개, 지출: ${expenseCategories.length}개 항목)");
     } catch (e) {
       print("⚠️ [CategoryMapper] JSON 로드/파싱 에러 ($filePath): $e");
       _isLoaded = true; // 실패 시에도 반복 로드 시도를 막기 위해 flag 처리
     }
   }
 
+  /// 적합한 카테고리를 찾아 반환 (예: "맥도날드" 입력 시 -> "식당/외식" 반환)
   String getCategory(String description, {required bool isIncome}) {
     final categories = isIncome ? incomeCategories : expenseCategories;
 
     for (var entry in categories.entries) {
-      final categoryName = entry.key;
-      final keywords = entry.value;
+      final categoryName = entry.key; // 소분류 이름 (예: "식당/외식", "카페/디저트")
+      final keywords = entry.value;    // 키워드 리스트 (예: ["맥도날드", "버거킹", ...])
 
       for (var keyword in keywords) {
-        if (description.contains(keyword)) {
+        if (keyword.isNotEmpty && description.contains(keyword)) {
           return categoryName;
         }
       }
     }
-    return "미입력";
+    return "미분류";
   }
 }
 
 // ============================================================================
-// 3. 📊 가계부 구글 드라이브 및 스프레드시트 통합 관리 서비스 클래스
+/// 가계부 구글 드라이브 폴더 및 연도별 시트 ID를 관리/캐싱하는 클래스
 // ============================================================================
-class HouseholdSheetService {
-  final CategoryMapper categoryMapper = CategoryMapper();
+class LedgerCacheManager {
+  String? _folderId;
+  final Map<int, String> _yearToSpreadsheetIdMap = {};
 
-  /// 서비스 초기화 시 JSON 설정 파일 로드
-  Future<void> init([String filePath = 'assets/ledger_ingestion_info.json']) async {
-    await categoryMapper.loadCategoryJson(filePath);
-  }
+  bool get isInitialized => _folderId != null;
 
-  // --------------------------------------------------------------------------
-  // 🟢 [기능 A] 파일 및 시트 구조 생성 로직
-  // --------------------------------------------------------------------------
+  /// 앱 초기화 시 구글 드라이브의 '가계부' 폴더 내 모든 연도별 시트 목록을 한 번에 스캔 및 캐싱
+  Future<void> initializeAllSheets(drive.DriveApi driveApi, {String folderName = "가계부"}) async {
+    // 1. '가계부' 폴더 ID 가져오기/생성
+    _folderId ??= await _getOrCreateFolder(driveApi, folderName);
 
-  /// [기존 호환용] 현재 연도 기준 가계부 설정
-  Future<String> setupLedgerSpreadsheet(AuthClient client) async {
-    return await setupLedgerSpreadsheetForYear(client, DateTime.now().year);
-  }
+    // 2. 폴더 내 존재하는 모든 '가계부_YYYY' 파일 일괄 조회
+    final query = "'$_folderId' in parents and mimeType = 'application/vnd.google-apps.spreadsheet' and trashed = false";
+    final fileList = await driveApi.files.list(q: query);
 
-  /// [확장용] 특정 연도 가계부 설정
-  Future<String> setupLedgerSpreadsheetForYear(AuthClient client, int year) async {
-    // 안전장치: 카테고리가 안 읽혀있다면 JSON 로드 실행
-    if (!categoryMapper.isLoaded) {
-      await categoryMapper.loadCategoryJson();
+    _yearToSpreadsheetIdMap.clear();
+
+    if (fileList.files != null) {
+      for (var file in fileList.files!) {
+        if (file.name != null && file.id != null) {
+          // 파일명에서 연도 추출 (예: "가계부_2026" -> 2026)
+          final regExp = RegExp(r'가계부_(\d{4})');
+          final match = regExp.firstMatch(file.name!);
+          if (match != null) {
+            final year = int.parse(match.group(1)!);
+            _yearToSpreadsheetIdMap[year] = file.id!;
+          }
+        }
+      }
     }
-
-    final driveApi = drive.DriveApi(client);
-    final sheetsApi = sheets.SheetsApi(client);
-
-    final folderId = await _getOrCreateFolder(driveApi, "가계부");
-    final fileName = "가계부_$year";
-
-    return await _getOrCreateSpreadsheet(
-      driveApi,
-      sheetsApi,
-      folderId,
-      fileName,
-    );
+    print("✅ [LedgerCacheManager] 연도별 시트 캐시 완료: $_yearToSpreadsheetIdMap");
   }
 
-  Future<String> _getOrCreateFolder(
-    drive.DriveApi driveApi,
-    String folderName,
-  ) async {
-    print("\n📁 1. '$folderName' 폴더 확인 중...");
+  /// 특정 연도의 시트 ID 가져오기 (캐시에 존재하면 API 호출 없이 0초 반환)
+  String? getSpreadsheetId(int year) {
+    return _yearToSpreadsheetIdMap[year];
+  }
 
-    final query =
-        "name = '$folderName' and mimeType = 'application/vnd.google-apps.folder' and trashed = false";
+  /// 신규 생성된 연도 시트 ID 등록
+  void registerSpreadsheetId(int year, String spreadsheetId) {
+    _yearToSpreadsheetIdMap[year] = spreadsheetId;
+  }
+
+  /// '가계부' 폴더 ID 반환
+  Future<String> getFolderId(drive.DriveApi driveApi, {String folderName = "가계부"}) async {
+    _folderId ??= await _getOrCreateFolder(driveApi, folderName);
+    return _folderId!;
+  }
+
+  /// 폴더 생성/조회 헬퍼
+  Future<String> _getOrCreateFolder(drive.DriveApi driveApi, String folderName) async {
+    print("\n📁 '가계부' 폴더 확인 중...");
+    final query = "name = '$folderName' and mimeType = 'application/vnd.google-apps.folder' and trashed = false";
     final result = await driveApi.files.list(q: query);
 
     if (result.files != null && result.files!.isNotEmpty) {
@@ -118,13 +146,78 @@ class HouseholdSheetService {
     }
 
     print("  └ ➕ '$folderName' 폴더가 없어 새로 생성합니다...");
-    final folderMetaData = drive.File()
-      ..name = folderName
-      ..mimeType = 'application/vnd.google-apps.folder';
-
-    final createdFolder = await driveApi.files.create(folderMetaData);
-    print("  └ 🎉 폴더 생성 완료! (ID: ${createdFolder.id})");
+    final createdFolder = await driveApi.files.create(
+      drive.File()
+        ..name = folderName
+        ..mimeType = 'application/vnd.google-apps.folder',
+    );
     return createdFolder.id!;
+  }
+
+  /// 캐시 초기화
+  void clear() {
+    _folderId = null;
+    _yearToSpreadsheetIdMap.clear();
+  }
+}
+
+// ============================================================================
+// 3. 📊 가계부 구글 드라이브 및 스프레드시트 통합 관리 서비스 클래스
+// ============================================================================
+class HouseholdSheetService {
+  final CategoryMapper categoryMapper = CategoryMapper();
+  final LedgerCacheManager cacheManager = LedgerCacheManager(); // 💡 캐시 매니저 도입
+
+  /// 서비스 초기화 시 JSON 설정 파일 및 구글 드라이브 시트 목록 사전 스캔
+  Future<void> init(
+    AuthClient client, [
+    String filePath = 'assets/ledger_ingestion_info.json',
+  ]) async {
+    await categoryMapper.loadCategoryJson(filePath);
+    final driveApi = drive.DriveApi(client);
+    await cacheManager.initializeAllSheets(driveApi);
+  }
+
+  // ==========================================================================
+  // 🟢 [기능 A] 파일 및 시트 구조 생성 및 ID 관리
+  // ==========================================================================
+
+  /// [기존 호환용] 현재 연도 기준 가계부 설정
+  Future<String> setupLedgerSpreadsheet(AuthClient client) async {
+    return await setupLedgerSpreadsheetForYear(client, DateTime.now().year);
+  }
+
+  /// [확장용] 특정 연도 가계부 설정 (캐시 체크 적용)
+  Future<String> setupLedgerSpreadsheetForYear(AuthClient client, int year) async {
+    // 1. 캐시에 존재하면 API 호출 없이 0.001초만에 즉시 반환
+    final cachedId = cacheManager.getSpreadsheetId(year);
+    if (cachedId != null) {
+      return cachedId;
+    }
+
+    // 2. 카테고리 로드 상태 안전장치
+    if (!categoryMapper.isLoaded) {
+      await categoryMapper.loadCategoryJson();
+    }
+
+    final driveApi = drive.DriveApi(client);
+    final sheetsApi = sheets.SheetsApi(client);
+
+    final folderId = await cacheManager.getFolderId(driveApi);
+    final fileName = "가계부_$year";
+
+    // 3. 신규 시트 생성 또는 구글 드라이브 내 기존 파일 탐색
+    final spreadsheetId = await _getOrCreateSpreadsheet(
+      driveApi,
+      sheetsApi,
+      folderId,
+      fileName,
+    );
+
+    // 4. 캐시 매니저에 ID 저장
+    cacheManager.registerSpreadsheetId(year, spreadsheetId);
+
+    return spreadsheetId;
   }
 
   Future<String> _getOrCreateSpreadsheet(
@@ -183,9 +276,7 @@ class HouseholdSheetService {
   ) async {
     List<sheets.ValueRange> data = [];
 
-    // ------------------------------------------------------------------------
     // 1. JSON 기반 Overview 안내표 작성
-    // ------------------------------------------------------------------------
     final List<List<String>> overviewGuide = [
       ["📌 [수입 분류 안내]", ""],
     ];
@@ -209,9 +300,7 @@ class HouseholdSheetService {
       ),
     );
 
-    // ------------------------------------------------------------------------
-    // 2. 수입 종합 통계표 생성 (동적 위치 계산)
-    // ------------------------------------------------------------------------
+    // 2. 수입 종합 통계표 생성
     final monthsHeader = [
       "수입분류", "1월", "2월", "3월", "4월", "5월", "6월",
       "7월", "8월", "9월", "10월", "11월", "12월", "연간 합계"
@@ -252,9 +341,7 @@ class HouseholdSheetService {
       ),
     );
 
-    // ------------------------------------------------------------------------
-    // 3. 지출 종합 통계표 생성 (동적 위치 계산)
-    // ------------------------------------------------------------------------
+    // 3. 지출 종합 통계표 생성
     final expenseList = categoryMapper.expenseCategories.keys.toList();
     final expenseMonthsHeader = [
       "지출분류", "1월", "2월", "3월", "4월", "5월", "6월",
@@ -294,9 +381,7 @@ class HouseholdSheetService {
       ),
     );
 
-    // ------------------------------------------------------------------------
-    // 4. 1~12월 시트 헤더 생성
-    // ------------------------------------------------------------------------
+    // 4. 1~12월 시트 기본 헤더 생성
     for (int month = 1; month <= 12; month++) {
       final sheetName = '$month월';
       data.add(
@@ -321,9 +406,10 @@ class HouseholdSheetService {
     print("  └ ✅ Overview 통계표 및 범례 작성 완료!");
   }
 
-  // --------------------------------------------------------------------------
-  // 🔵 [기능 B] 수입 / 지출 내역 신규 입력 로직
-  
+  // ==========================================================================
+  // 🔵 [기능 B] 수입 / 지출 내역 입력 로직
+  // ==========================================================================
+
   Future<void> addTransaction({
     required AuthClient client,
     required LedgerItem item,
@@ -335,12 +421,9 @@ class HouseholdSheetService {
 
     final sheetsApi = sheets.SheetsApi(client);
 
-    String targetSpreadsheetId;
-    if (spreadsheetId != null && spreadsheetId.isNotEmpty) {
-      targetSpreadsheetId = spreadsheetId;
-    } else {
-      targetSpreadsheetId = await setupLedgerSpreadsheetForYear(client, item.date.year);
-    }
+    final targetSpreadsheetId = (spreadsheetId != null && spreadsheetId.isNotEmpty)
+        ? spreadsheetId
+        : await setupLedgerSpreadsheetForYear(client, item.date.year);
 
     if (item.category == null || item.category!.isEmpty) {
       item.category = categoryMapper.getCategory(
@@ -351,17 +434,14 @@ class HouseholdSheetService {
 
     final monthSheetName = '${item.date.month}월';
 
-    // 1. 해당 월의 시트 탭 존재 확인 및 생성
     await _ensureMonthSheetExists(sheetsApi, targetSpreadsheetId, monthSheetName);
 
-    // 원본 range 사용 (googleapis 패키지가 내부적으로 URL 인코딩 처리함)
     final range = "'$monthSheetName'!A1:J1000";
-
     List<List<dynamic>> existingRows = [];
 
     try {
       final response = await sheetsApi.spreadsheets.values.get(
-        targetSpreadsheetId, 
+        targetSpreadsheetId,
         range,
       );
       existingRows = response.values ?? [];
@@ -373,19 +453,13 @@ class HouseholdSheetService {
       return;
     }
 
-    // 시트에 헤더도 없는 빈 상태라면 기본 헤더 생성
     if (existingRows.isEmpty) {
       final defaultHeader = [
         "날짜", "수입 분류", "내용", "금액", "", "날짜", "지출 수단", "지출 분류", "내용", "금액"
       ];
-      
-      final headerValueRange = sheets.ValueRange(
-        range: "'$monthSheetName'!A1:J1",
-        values: [defaultHeader],
-      );
 
       await sheetsApi.spreadsheets.values.update(
-        headerValueRange,
+        sheets.ValueRange(range: "'$monthSheetName'!A1:J1", values: [defaultHeader]),
         targetSpreadsheetId,
         "'$monthSheetName'!A1:J1",
         valueInputOption: "USER_ENTERED",
@@ -394,13 +468,11 @@ class HouseholdSheetService {
       existingRows = [defaultHeader];
     }
 
-    // 2. 중복 체크
     if (_checkDuplicate(existingRows, item)) {
       print("⚠️ [중복 패스] [${item.formattedDate}] '${item.description}' (${item.amount}원) 내역이 이미 존재합니다.");
       return;
     }
 
-    // 3. 데이터 추가 기입
     await appendTransactionData(
       sheetsApi,
       targetSpreadsheetId,
@@ -410,8 +482,7 @@ class HouseholdSheetService {
     );
   }
 
-  /// 월별 다중 항목을 단 1회의 API 호출로 일괄 전송(Batch Append)하는 메서드
-  /// 월별 다중 항목을 수입/지출 영역에 각각 맞춰 단 1회의 API 호출로 일괄 전송(Batch Update)하는 메서드
+  /// 월별 다중 항목 배치 전송 (단 1회의 API 호출로 처리)
   Future<bool> appendTransactionBatch(
     sheets.SheetsApi sheetsApi,
     String spreadsheetId,
@@ -421,7 +492,6 @@ class HouseholdSheetService {
     if (items.isEmpty) return true;
 
     try {
-      // 1. 해당 월의 기존 시트 데이터 읽어오기
       final range = "'$sheetName'!A1:J1000";
       final response = await sheetsApi.spreadsheets.values.get(
         spreadsheetId,
@@ -429,7 +499,6 @@ class HouseholdSheetService {
       );
       final List<List<dynamic>> existingRows = response.values ?? [];
 
-      // 시트가 아예 비어있으면 헤더 작성
       if (existingRows.isEmpty) {
         final defaultHeader = [
           "날짜", "수입 분류", "내용", "금액", "", "날짜", "지출 수단", "지출 분류", "내용", "금액"
@@ -443,32 +512,24 @@ class HouseholdSheetService {
         existingRows.add(defaultHeader);
       }
 
-      // 2. 수입(A~D: Index 0)과 지출(F~J: Index 5)의 마지막 데이터 입력 행(0-based) 계산
-      int lastIncomeRowIdx = 0;  // 0은 헤더 위치(1행)를 의미
+      int lastIncomeRowIdx = 0;
       int lastExpenseRowIdx = 0;
 
       for (int i = 1; i < existingRows.length; i++) {
         final row = existingRows[i];
-        
-        // A열(수입 날짜)에 값이 있는 경우
         if (row.isNotEmpty && row[0].toString().trim().isNotEmpty) {
           lastIncomeRowIdx = i;
         }
-        
-        // F열(지출 날짜)에 값이 있는 경우 (Index 5)
         if (row.length > 5 && row[5].toString().trim().isNotEmpty) {
           lastExpenseRowIdx = i;
         }
       }
 
-      // 3. 수입/지출 각각 분리하여 입력할 Rows 및 대상 Range 계산
       final List<List<Object?>> incomeRows = [];
       final List<List<Object?>> expenseRows = [];
 
       for (final item in items) {
         final formattedDate = item.formattedDate;
-
-        // type 파싱 또는 키워드로 수입 여부 판단
         final incomeKeywords = ["수입", "입금", "월급", "환불"];
         final String categoryStr = item.category ?? '';
         final bool isIncome = item.type == TransactionType.income ||
@@ -476,53 +537,46 @@ class HouseholdSheetService {
 
         if (isIncome) {
           incomeRows.add([
-            formattedDate,            // A: 날짜
-            item.category ?? '주수입', // B: 수입 분류
-            item.description,         // C: 내용
-            item.amount,              // D: 금액
+            formattedDate,
+            item.category ?? '주수입',
+            item.description,
+            item.amount,
           ]);
         } else {
           expenseRows.add([
-            formattedDate,            // F: 날짜
-            item.payMethod ?? '카드', // G: 지출 수단
-            item.category ?? '미분류', // H: 지출 분류
-            item.description,         // I: 내용
-            item.amount,              // J: 금액
+            formattedDate,
+            item.payMethod ?? '카드',
+            item.category ?? '미분류',
+            item.description,
+            item.amount,
           ]);
         }
       }
 
       final List<sheets.ValueRange> valueRangesToUpdate = [];
 
-      // 4. 수입 데이터 범위 계산 (A~D열)
       if (incomeRows.isNotEmpty) {
-        final startRow = lastIncomeRowIdx + 2; // 1-based index 및 다음 행(+1)
+        final startRow = lastIncomeRowIdx + 2;
         final endRow = startRow + incomeRows.length - 1;
-        final incomeRange = "'$sheetName'!A$startRow:D$endRow";
-
         valueRangesToUpdate.add(
           sheets.ValueRange(
-            range: incomeRange,
+            range: "'$sheetName'!A$startRow:D$endRow",
             values: incomeRows,
           ),
         );
       }
 
-      // 5. 지출 데이터 범위 계산 (F~J열)
       if (expenseRows.isNotEmpty) {
-        final startRow = lastExpenseRowIdx + 2; // 1-based index 및 다음 행(+1)
+        final startRow = lastExpenseRowIdx + 2;
         final endRow = startRow + expenseRows.length - 1;
-        final expenseRange = "'$sheetName'!F$startRow:J$endRow";
-
         valueRangesToUpdate.add(
           sheets.ValueRange(
-            range: expenseRange,
+            range: "'$sheetName'!F$startRow:J$endRow",
             values: expenseRows,
           ),
         );
       }
 
-      // 6. batchUpdate API를 사용해 단 1번의 호출로 수입/지출을 각 위치에 동시 업데이트
       if (valueRangesToUpdate.isNotEmpty) {
         final batchRequest = sheets.BatchUpdateValuesRequest(
           valueInputOption: "USER_ENTERED",
@@ -542,8 +596,6 @@ class HouseholdSheetService {
       return false;
     }
   }
-
-
 
   Future<void> _ensureMonthSheetExists(
     sheets.SheetsApi sheetsApi,
@@ -593,7 +645,6 @@ class HouseholdSheetService {
     if (rows.length <= 1) return false;
 
     final isIncome = item.type == TransactionType.income;
-
     final dateIdx = isIncome ? 0 : 5;
     final descIdx = isIncome ? 2 : 8;
     final amountIdx = isIncome ? 3 : 9;
@@ -604,8 +655,7 @@ class HouseholdSheetService {
       if (row.length > amountIdx) {
         final existingDate = row[dateIdx].toString().trim();
         final existingDesc = row[descIdx].toString().trim();
-        final existingAmount =
-            row[amountIdx].toString().replaceAll(',', '').trim();
+        final existingAmount = row[amountIdx].toString().replaceAll(',', '').trim();
 
         if (existingDate == item.formattedDate &&
             existingDesc == item.description &&
@@ -624,13 +674,11 @@ class HouseholdSheetService {
     List<List<dynamic>> existingRows,
     LedgerItem item,
   ) async {
-    // 기존 행 데이터가 비어있으면 실패 처리
     if (existingRows.isEmpty) return false;
 
     final isIncome = item.type == TransactionType.income;
     final headerRow = existingRows[0].map((e) => e.toString().trim()).toList();
 
-    // 1. 헤더 행에서 '날짜', '내용', '금액' 인덱스 찾기
     final dateIndices = <int>[];
     final descIndices = <int>[];
     final amountIndices = <int>[];
@@ -641,13 +689,12 @@ class HouseholdSheetService {
       if (headerRow[i] == "금액") amountIndices.add(i);
     }
 
-    // targetIndex: 수입=0번째 헤더, 지출=1번째 헤더
     final targetIndex = isIncome ? 0 : 1;
 
     if (dateIndices.length <= targetIndex ||
         descIndices.length <= targetIndex ||
         amountIndices.length <= targetIndex) {
-      print("⚠️ [$sheetName] ${isIncome ? '첫 번째(수입)' : '두 번째(지출)'} 헤더('날짜', '내용', '금액')를 찾을 수 없습니다.");
+      print("⚠️ [$sheetName] ${isIncome ? '첫 번째(수입)' : '두 번째(지출)'} 헤더를 찾을 수 없습니다.");
       return false;
     }
 
@@ -655,7 +702,6 @@ class HouseholdSheetService {
     final descIdx = descIndices[targetIndex];
     final amountIdx = amountIndices[targetIndex];
 
-    // 2. 입력할 데이터 배열 설정
     final rowData = isIncome
         ? [
             item.formattedDate,
@@ -671,17 +717,14 @@ class HouseholdSheetService {
             item.amount,
           ];
 
-    // 3. 기존 데이터 순회하며 중복 체크 및 targetRow 계산
-    int lastFilledRowIndex = 0; // 해당 영역(수입 또는 지출)에서 데이터가 있는 마지막 행 (0-based)
+    int lastFilledRowIndex = 0;
 
     for (int i = 1; i < existingRows.length; i++) {
       final row = existingRows[i];
 
-      // 해당 수입/지출 영역의 '날짜' 셀에 값이 존재하는 경우
       if (row.length > dateIdx && row[dateIdx].toString().trim().isNotEmpty) {
-        lastFilledRowIndex = i; // 마지막 데이터 행 저장
+        lastFilledRowIndex = i;
 
-        // 안전한 안전 영역 길이 체크 후 중복 데이터 확인
         if (row.length > descIdx && row.length > amountIdx) {
           final existingDate = row[dateIdx].toString().trim();
           final existingDesc = row[descIdx].toString().trim();
@@ -691,17 +734,14 @@ class HouseholdSheetService {
               existingDesc == item.description.trim() &&
               existingAmount == item.amount.toString().trim()) {
             print("⚠️ 중복 데이터 감지되어 스킵됨: [${item.formattedDate}] ${item.description} (${item.amount}원)");
-            return false; // 중복 시 false 반환
+            return false;
           }
         }
       }
     }
 
-    // 시트의 실제 행 번호 (1-based index):
-    // 데이터가 하나도 없으면 헤더 바로 밑 행(2행), 데이터가 있으면 마지막 입력된 행의 다음 행
     final targetRow = (lastFilledRowIndex == 0) ? 2 : lastFilledRowIndex + 2;
 
-    // 4. 숫자를 알파벳 컬럼명으로 변환
     String colToLetter(int colIndex) {
       String letter = "";
       int tempCol = colIndex;
@@ -716,7 +756,6 @@ class HouseholdSheetService {
     final endColLetter = colToLetter(dateIdx + rowData.length - 1);
     final targetRange = "'$sheetName'!$startColLetter$targetRow:$endColLetter$targetRow";
 
-    // 5. 시트 업데이트 요청
     try {
       final valueRange = sheets.ValueRange(
         range: targetRange,
@@ -730,18 +769,18 @@ class HouseholdSheetService {
         valueInputOption: "USER_ENTERED",
       );
 
-      print("✅ [$sheetName] ${isIncome ? '수입' : '지출'} 입력 성공 (행: $targetRow, 범위: $targetRange) -> [${item.formattedDate}] ${item.description}: ${item.amount}원");
-      return true; // 성공 시 true 반환
+      print("✅ [$sheetName] ${isIncome ? '수입' : '지출'} 입력 성공 (행: $targetRow, 범위: $targetRange)");
+      return true;
     } catch (e) {
       print("❌ [$sheetName] 시트 업데이트 실패: $e");
       return false;
     }
   }
-  
-  // --------------------------------------------------------------------------
+
+  // ==========================================================================
   // 🟢 [기능 C] 월별 수입 / 지출 내역 조회 로직
-  // --------------------------------------------------------------------------
-  /// 특정 연월의 지출 내역 리스트 조회
+  // ==========================================================================
+
   Future<List<LedgerItem>> getMonthlyExpenses({
     required AuthClient client,
     required int year,
@@ -755,7 +794,6 @@ class HouseholdSheetService {
     );
   }
 
-  /// 특정 연월의 수입 내역 리스트 조회
   Future<List<LedgerItem>> getMonthlyIncomes({
     required AuthClient client,
     required int year,
@@ -769,7 +807,7 @@ class HouseholdSheetService {
     );
   }
 
-  /// 특정 연월의 수입 또는 지출 내역 리스트 조회 (통합 메서드)
+  /// 특정 연월의 수입 또는 지출 내역 리스트 조회
   Future<List<LedgerItem>> getMonthlyTransactions({
     required AuthClient client,
     required int year,
@@ -778,7 +816,7 @@ class HouseholdSheetService {
   }) async {
     final sheetsApi = sheets.SheetsApi(client);
 
-    // 1. 해당 연도의 가계부 스프레드시트 ID 자동 탐색/생성
+    // 캐시 매니저를 활용해 빠른 ID 반환
     final targetSpreadsheetId = await setupLedgerSpreadsheetForYear(client, year);
 
     final monthSheetName = '$month월';
@@ -792,33 +830,27 @@ class HouseholdSheetService {
 
       final rows = response.values;
       if (rows == null || rows.length <= 1) {
-        return []; // 데이터가 없거나 헤더만 있는 경우
+        return [];
       }
 
       final isIncome = (type == TransactionType.income);
       final List<LedgerItem> items = [];
 
-      // 인덱스 설정
-      // 수입(A~D): 날짜(0), 분류(1), 내용(2), 금액(3)
-      // 지출(F~J): 날짜(5), 지출수단(6), 분류(7), 내용(8), 금액(9)
       final dateIdx = isIncome ? 0 : 5;
       final payMethodIdx = isIncome ? null : 6;
       final categoryIdx = isIncome ? 1 : 7;
       final descIdx = isIncome ? 2 : 8;
       final amountIdx = isIncome ? 3 : 9;
 
-      // 2행(헤더 제외)부터 순회하며 데이터 추출
       for (int i = 1; i < rows.length; i++) {
         final row = rows[i];
 
-        // 필수 데이터 영역 유효성 확인
         if (row.length <= amountIdx) continue;
 
         final rawDate = row[dateIdx].toString().trim();
         final rawDesc = row[descIdx].toString().trim();
         final rawAmount = row[amountIdx].toString().replaceAll(',', '').trim();
 
-        // 날짜나 금액, 내용이 비어있는 행은 패스
         if (rawDate.isEmpty || rawAmount.isEmpty || rawDesc.isEmpty) continue;
 
         final parsedAmount = int.tryParse(rawAmount);
@@ -852,6 +884,6 @@ class HouseholdSheetService {
       return [];
     }
   }
-
-
 }
+
+
