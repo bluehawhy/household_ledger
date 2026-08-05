@@ -1,10 +1,8 @@
-// google_auth_mobile.dart
 import 'dart:io';
 import 'package:google_sign_in/google_sign_in.dart';
 import 'package:googleapis_auth/auth_io.dart';
 import 'package:http/http.dart' as http;
 import 'google_auth_stub.dart';
-
 
 class GoogleAuthMobileService extends GoogleAuthService {
   @override
@@ -12,18 +10,17 @@ class GoogleAuthMobileService extends GoogleAuthService {
   late final GoogleSignIn _googleSignIn;
 
   GoogleAuthMobileService(this.scopes) : super(scopes) {
+    // 💡 iOS/Android 모두 별도의 clientId 전달 없이 기본 생성자로 초기화
+    // (ios/Runner/GoogleService-Info.plist 설정을 자동으로 참조합니다)
     _googleSignIn = GoogleSignIn(
       scopes: scopes,
-      clientId: Platform.isIOS
-          ? 'YOUR_IOS_CLIENT_ID.apps.googleusercontent.com'
-          : null,
     );
   }
 
   @override
   GoogleSignInAccount? get currentUser => _googleSignIn.currentUser;
 
-  // 💡 모바일 전용 Silent Sign-In 메서드 (공통 인터페이스엔 명시 X)
+  // 💡 모바일 전용 Silent Sign-In 메서드
   Future<GoogleSignInAccount?> signInSilently() async {
     return await _googleSignIn.signInSilently();
   }

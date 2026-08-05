@@ -12,44 +12,64 @@ class TransactionParserConfig {
   TransactionParserConfig.fromJson(Map<String, dynamic> json) {
     final ignoreConfig = json["무시 대상 설정"];
     if (ignoreConfig != null) {
-      // 1. 무시할 키워드 목록
       ignoredWords = List<String>.from(ignoreConfig["무시 키워드"] ?? []);
 
-      // 2. 무시할 정규식 패턴 목록 (시간, 사업자번호, 마스킹 등)
       final patternsMap = ignoreConfig["무시 정규식 패턴"] as Map<String, dynamic>?;
       if (patternsMap != null) {
         ignoredPatterns = patternsMap.values
-            .map((patternStr) => RegExp(patternStr.toString()))
+            .map((patternStr) => RegExp(patternStr.toString(), caseSensitive: false))
             .toList();
       }
     }
   }
 
-  /// 통합 무시 대상 검사
+  /// 토큰 단위 검사
   bool isIgnored(String token) {
-    // 1) 무시 키워드 부분 일치 검사
     if (ignoredWords.any((word) => token.contains(word))) {
       return true;
     }
-
-    // 2) 등록된 정규식 패턴(시간, 사업자번호, 마스킹 등) 매칭 검사
     if (ignoredPatterns.any((pattern) => pattern.hasMatch(token))) {
       return true;
     }
-
     return false;
+  }
+
+  /// 문장 전체 덩어리 정제 (JSON 정규식 활용)
+  String cleanText(String rawText) {
+    if (rawText.isEmpty) return rawText;
+
+    String cleaned = rawText;
+
+    for (final pattern in ignoredPatterns) {
+      String patternStr = pattern.pattern;
+
+      // 문장 내 부분 치환을 방지하는 앞뒤 ^ 및 $ 앵커 보정
+      if (patternStr.startsWith('^')) patternStr = patternStr.substring(1);
+      if (patternStr.endsWith('\$')) patternStr = patternStr.substring(0, patternStr.length - 1);
+
+      // JSON 원본 문자열의 이중 백슬래시(\s, \d 등) 보정
+      patternStr = patternStr.replaceAll(r'\\', r'\');
+
+      try {
+        final inlineRegExp = RegExp(patternStr, caseSensitive: false);
+        cleaned = cleaned.replaceAll(inlineRegExp, ' ');
+      } catch (e) {
+        // 정규식 예외 발생 시 무시
+      }
+    }
+
+    return cleaned.replaceAll(RegExp(r'\s+'), ' ').trim();
   }
 }
 
+
+
+
 /// 텍스트 입력을 분석하여 Map 형태의 가계부 데이터로 변환하는 서비스
 class TextParserService {
-  // 1. 필수 정규식 패턴 (날짜, 카드번호, 금액 등 구조 추출용)
-  //static final _fullDatePattern = RegExp(r'^(\d{4})[-/.](0?[1-9]|1[0-2])[-/.](0?[1-9]|[12]\d|3[01])$');
-  //static final _shortDatePattern = RegExp(r'^(0?[1-9]|1[0-2])[-/.](0?[1-9]|[12]\d|3[01])$');
   static final _fullDatePattern = RegExp(r'^(\d{4})[.-/](\d{1,2})[.-/](\d{1,2})(?:\s+\d{1,2}:\d{1,2})?$');
   static final _shortDatePattern = RegExp(r'^(\d{1,2})[.-/](\d{1,2})(?:\s+\d{1,2}:\d{1,2})?$');
   static final _cardNoPattern = RegExp(r'^\d{4}[-*\s]+[\d*]{2,4}[-*\s]+[\d*]{2,4}[-*\s]+\d{4}$');
-  // 기존: static final _amountPattern = RegExp(r'^(\d{1,3}(,\d{3})*|\d+)(원)?$');
   static final _amountPattern = RegExp(r'^-?\s*(\d{1,3}(,\d{3})*|\d+)(원)?$');
 
   // Config 객체 선언
@@ -99,16 +119,20 @@ class TextParserService {
     }
   }
 
+  /// 💡 [완전 자동화 전처리] JSON Config에만 의존하여 사전 정제 수행
+  String _preCleanInput(String rawInput) {
+    if (rawInput.trim().isEmpty) return '';
+    return _config.cleanText(rawInput);
+  }
+
   /// 입력 텍스트를 날짜 기준으로 여러 줄(문장)로 분할/전처리하는 함수
   List<String> parseInputLines(String rawInput) {
-    final trimmedInput = rawInput.trim();
-    if (trimmedInput.isEmpty) return [];
+    // 💡 1단계: Config 기반 사전 정제(전처리)로 잔액/승인번호 덩어리 제거
+    final cleanedText = _preCleanInput(rawInput);
+    if (cleanedText.isEmpty) return [];
 
-    if (!trimmedInput.contains('\n')) {
-      return [trimmedInput];
-    }
-
-    final singleLineText = trimmedInput
+    // 줄바꿈 보정
+    final singleLineText = cleanedText
         .replaceAll(RegExp(r'[\r\n]+'), ' ')
         .replaceAll(RegExp(r'\s+'), ' ')
         .trim();
@@ -146,7 +170,8 @@ class TextParserService {
 
   /// 단일 줄 텍스트를 파싱하여 Map<String, dynamic> 형태로 반환
   Map<String, dynamic> parseSingleLineToMap(String input) {
-    String rawText = input.trim();
+    // 💡 단일 문장 파싱 시작 시점에도 Pre-cleaning 적용
+    String rawText = _preCleanInput(input);
     if (rawText.isEmpty) {
       throw FormatException("입력된 텍스트가 비어있습니다.");
     }
@@ -164,11 +189,10 @@ class TextParserService {
 
     for (String token in tokens) {
       // -------------------------------------------------------------
-      // [1단계: 설정파일 기반 무시 대상 최우선 검사]
-      // (시간, 일반과세자, 승인, 출금, 사업자번호, 기호 등)
+      // [1단계: 설정파일 기반 무시 대상 검사]
       // -------------------------------------------------------------
       if (_config.isIgnored(token)) {
-        continue; // 무시 대상이면 이하 검사를 건너뛰고 패스!
+        continue; // 무시 대상이면 패스!
       }
 
       // 카드번호 패턴 (카드사 감지 시 payMethod 확정 후 패스)
@@ -178,7 +202,7 @@ class TextParserService {
       }
 
       // -------------------------------------------------------------
-      // [2단계: 주요 정보 추출 (가드 조건으로 불필요한 반복 탐색 방지)]
+      // [2단계: 주요 정보 추출]
       // -------------------------------------------------------------
 
       // 날짜
@@ -203,10 +227,9 @@ class TextParserService {
       if (type == TransactionType.expense && _isIncomeType(token)) {
         type = TransactionType.income;
         category ??= _matchCategory(token, type: TransactionType.income);
-        //continue;
       }
 
-      // 결제 수단 (payMethod가 미지정일 때만 시도)
+      // 결제 수단
       if (payMethod == null) {
         final foundPayMethod = _matchPayMethod(token);
         if (foundPayMethod != null) {
@@ -215,7 +238,7 @@ class TextParserService {
         }
       }
 
-      // 카테고리 (category가 미지정일 때만 시도)
+      // 카테고리
       if (category == null) {
         final foundCategory = _matchCategory(token, type: type);
         if (foundCategory != null) {
@@ -224,7 +247,7 @@ class TextParserService {
       }
 
       // -------------------------------------------------------------
-      // [3단계: 위 검사를 무사히 통과한 단어만 적요(Description) 후보로 수집]
+      // [3단계: 적요 후보 수집]
       // -------------------------------------------------------------
       remainingTokens.add(token);
     }
@@ -242,22 +265,18 @@ class TextParserService {
     }
     
     // -------------------------------------------------------------
-    // [4단계: 적요(Description) 최종 조합 - 최상위 그룹 Key 명칭만 필터링]
+    // [4단계: 적요(Description) 최종 조합]
     // -------------------------------------------------------------
-    // 최상위 그룹 이름(Key)들만 모아서 적요 제거 대상 목록 생성
-    // (예: "주수입", "부수입", "현금", "신용카드", "식비", "교통비", "의료비" 등)
     final Set<String> groupHeaderKeys = {
-      ..._incomeCategories.keys,  // 수입 분류 Key 목록 ("주수입", "부수입" 등)
-      ..._payMethods.keys,        // 지출 수단 Key 목록 ("현금", "신용카드" 등)
-      ..._expenseCategories.keys, // 지출 분류 Key 목록 ("식비", "교통비", "의료비" 등)
+      ..._incomeCategories.keys,
+      ..._payMethods.keys,
+      ..._expenseCategories.keys,
     };
 
-    // 토큰이 그룹 대표 이름(Key)과 토씨 하나 틀리지 않고 일치할 때만 적요에서 제외
     final cleanedTokens = remainingTokens.where((t) {
       return !groupHeaderKeys.contains(t.trim());
     }).toList();
 
-    // 적요(Description) 조합
     String description = cleanedTokens.join(' ').trim();
     if (description.isEmpty) {
       description = category ?? "미지정 내역";
@@ -312,14 +331,14 @@ class TextParserService {
   int? _parseAmount(String token) {
     final match = _amountPattern.firstMatch(token);
     if (match != null) {
-      // 1. 토큰 전체(match.group(0) 또는 token)에서 '원', 콤마(,), 공백 등을 제거하고
-      //    부호(-)와 숫자만 남깁니다.
       String cleanStr = token.replaceAll(RegExp(r'[^\d-]'), '');
       
-      // 2. 숫자로 변환합니다. (-21,800 -> -21800)
+      if (cleanStr.startsWith('0') && cleanStr != '0') {
+        return null;
+      }
+
       int? parsedNum = int.tryParse(cleanStr);
       
-      // 3. 변환 성공 시 0원을 제외한 모든 금액(양수 및 음수)을 반환합니다.
       if (parsedNum != null && parsedNum != 0) {
         return parsedNum;
       }
@@ -365,24 +384,15 @@ class TextParserService {
     return '신용카드';
   }
 
-
   String? _matchCategory(String token, {required TransactionType type}) {
     final categories = (type == TransactionType.income) ? _incomeCategories : _expenseCategories;
 
-    // -----------------------------------------------------------------
-    // [1단계] 카테고리 Key 이름 자체와 먼저 매칭 (최우선)
-    // 예: 토큰이 "식비", "식비내역", "고정지출" 등 카테고리명을 직접 포함하는 경우
-    // -----------------------------------------------------------------
     for (var categoryKey in categories.keys) {
       if (token.contains(categoryKey)) {
-        return categoryKey; // 리스트 검색 없이 바로 카테고리명 반환!
+        return categoryKey;
       }
     }
 
-    // -----------------------------------------------------------------
-    // [2단계] Key에 걸리지 않았을 때만 리스트(entry.value) 키워드 검색
-    // 예: "스타벅스" -> "식비", "쿠팡" -> "생활비"
-    // -----------------------------------------------------------------
     for (var entry in categories.entries) {
       for (var keyword in entry.value) {
         if (token.contains(keyword)) {
@@ -393,7 +403,4 @@ class TextParserService {
 
     return null;
   }
-
-
-
 }
