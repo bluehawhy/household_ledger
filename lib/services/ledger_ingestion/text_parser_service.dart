@@ -119,91 +119,12 @@ class TextParserService {
     }
   }
 
-  /// 💡 [완전 자동화 전처리] JSON Config에만 의존하여 사전 정제 수행
-  String _preCleanInput(String rawInput) {
-    if (rawInput.trim().isEmpty) return '';
-    return _config.cleanText(rawInput);
-  }
-  
-  
-  /// 입력된 텍스트의 타입을 자동 감지하는 헬퍼 함수
-  InputType detectInputType(String rawInput) {
-    // \r 제거 후 줄 단위 분리
-    final lines = rawInput.replaceAll('\r', '').trim().split('\n');
-    if (lines.isEmpty) return InputType.txt;
-
-    // 빈 줄을 제외한 실제 데이터 줄 검사 (최대 5줄 샘플링)
-    final nonEmplyLines = lines.where((l) => l.trim().isNotEmpty).take(5).toList();
-    if (nonEmplyLines.isEmpty) return InputType.txt;
-
-    // 1. Excel (Tab 구분) 규칙성 검사
-    final tabCounts = nonEmplyLines.map((l) => '\t'.allMatches(l).length).toList();
-    final firstTabCount = tabCounts.first;
-    if (firstTabCount > 0 && tabCounts.every((count) => count == firstTabCount)) {
-      return InputType.excel;
-    }
-
-    // 2. CSV (Comma 구분) 규칙성 검사
-    final csvCounts = nonEmplyLines.map((l) => ','.allMatches(l).length).toList();
-    final firstCsvCount = csvCounts.first;
-    if (firstCsvCount > 0 && csvCounts.every((count) => count == firstCsvCount)) {
-      return InputType.csv;
-    }
-
-    // 3. 규칙이 없으면 일반 TXT
-    return InputType.txt;
-  }
-
-  /// [TXT 전용] 금액+날짜/앵커 패턴 기준 분할 헬퍼 함수
-  List<String> _parseTxtLinesByAnchors(String text) {
-    // 줄바꿈 및 다중 공백 단일화
-    final singleLineText = text
-        .replaceAll(RegExp(r'[\r\n]+'), ' ')
-        .replaceAll(RegExp(r'\s+'), ' ')
-        .trim();
-
-    // 날짜 정규식 (YYYY-MM-DD, MM/DD 등)
-    final datePattern = r'(?:\b\d{4}[./-]\d{1,2}[./-]\d{1,2}\b|\b\d{1,2}[./-]\d{1,2}\b)';
-    // 금액 정규식 (예: 10,000원, 5000원, $100 등)
-    final amountPattern = r'(?:\b\d{1,3}(?:,\d{3})*원?\b|\$\d+(?:\.\d{2})?)';
-
-    // 날짜 또는 금액 중 하나라도 등장하는 지점을 앵커(구분 기준)로 지정
-    final anchorRegex = RegExp('$datePattern|$amountPattern');
-    final matches = anchorRegex.allMatches(singleLineText).toList();
-
-    if (matches.isEmpty) {
-      return [singleLineText];
-    }
-
-    final List<String> resultLines = [];
-
-    for (int i = 0; i < matches.length; i++) {
-      final int start = matches[i].start;
-      final int end = (i + 1 < matches.length) ? matches[i + 1].start : singleLineText.length;
-
-      // 첫 번째 앵커 이전의 텍스트 처리
-      if (i == 0 && start > 0) {
-        final prefix = singleLineText.substring(0, start).trim();
-        if (prefix.isNotEmpty) {
-          resultLines.add(prefix);
-        }
-      }
-
-      final lineSegment = singleLineText.substring(start, end).trim();
-      if (lineSegment.isNotEmpty) {
-        resultLines.add(lineSegment);
-      }
-    }
-
-    return resultLines;
-  }
-
   /// [메인] 입력 텍스트를 인식된 타입에 따라 파싱하는 함수
   List<String> parseInputLines(String rawInput) {
     if (rawInput.trim().isEmpty) return [];
 
     // 1단계: 원본(rawInput) 상태에서 입력 데이터 타입부터 먼저 감지
-    final inputType = detectInputType(rawInput);
+    final inputType = _detectInputType(rawInput);
     print("🔹 감지된 입력 타입: $inputType");
 
     // 2단계: 타입별 파싱 분기
@@ -217,12 +138,10 @@ class TextParserService {
             .map((line) => _preCleanInput(line).trim())
             .where((line) => line.isNotEmpty)
             .toList();
-
+      
       case InputType.txt:
-        // TXT: 전체 원본을 먼저 전처리한 후, 날짜 + 금액 앵커 기반으로 분할
-        final cleanedText = _preCleanInput(rawInput);
-        if (cleanedText.trim().isEmpty) return [];
-        return _parseTxtLinesByAnchors(cleanedText);
+        // TXT: 앵커 기반으로 문장 분할 진행
+        return _parseTxtLinesByAnchors(rawInput);
     }
   }
 
@@ -354,6 +273,84 @@ class TextParserService {
   // ==========================================
   // Private 헬퍼 함수들
   // ==========================================
+  /// 💡 [완전 자동화 전처리] JSON Config에만 의존하여 사전 정제 수행
+  String _preCleanInput(String rawInput) {
+    if (rawInput.trim().isEmpty) return '';
+    return _config.cleanText(rawInput);
+  }
+  
+  /// 입력된 텍스트의 타입을 자동 감지하는 헬퍼 함수
+  InputType _detectInputType(String rawInput) {
+    // \r 제거 후 줄 단위 분리
+    final lines = rawInput.replaceAll('\r', '').trim().split('\n');
+    if (lines.isEmpty) return InputType.txt;
+
+    // 빈 줄을 제외한 실제 데이터 줄 검사 (최대 5줄 샘플링)
+    final nonEmplyLines = lines.where((l) => l.trim().isNotEmpty).take(5).toList();
+    if (nonEmplyLines.isEmpty) return InputType.txt;
+
+    // 1. Excel (Tab 구분) 규칙성 검사
+    final tabCounts = nonEmplyLines.map((l) => '\t'.allMatches(l).length).toList();
+    final firstTabCount = tabCounts.first;
+    if (firstTabCount > 0 && tabCounts.every((count) => count == firstTabCount)) {
+      return InputType.excel;
+    }
+
+    // 2. CSV (Comma 구분) 규칙성 검사
+    final csvCounts = nonEmplyLines.map((l) => ','.allMatches(l).length).toList();
+    final firstCsvCount = csvCounts.first;
+    if (firstCsvCount > 0 && csvCounts.every((count) => count == firstCsvCount)) {
+      return InputType.csv;
+    }
+
+    // 3. 규칙이 없으면 일반 TXT
+    return InputType.txt;
+  }
+
+  /// [TXT 전용] 금액+날짜/앵커 패턴 기준 분할 헬퍼 함수
+  List<String> _parseTxtLinesByAnchors(String text) {
+    // 줄바꿈 및 다중 공백 단일화
+    final singleLineText = text
+        .replaceAll(RegExp(r'[\r\n]+'), ' ')
+        .replaceAll(RegExp(r'\s+'), ' ')
+        .trim();
+
+    // 날짜 정규식 (YYYY-MM-DD, MM/DD 등)
+    final datePattern = r'(?:\b\d{4}[./-]\d{1,2}[./-]\d{1,2}\b|\b\d{1,2}[./-]\d{1,2}\b)';
+    // 금액 정규식 (예: 10,000원, 5000원, $100 등)
+    final amountPattern = r'(?:\b\d{1,3}(?:,\d{3})*원?\b|\$\d+(?:\.\d{2})?)';
+
+    // 날짜 또는 금액 중 하나라도 등장하는 지점을 앵커(구분 기준)로 지정
+    final anchorRegex = RegExp('$datePattern|$amountPattern');
+    final matches = anchorRegex.allMatches(singleLineText).toList();
+
+    if (matches.isEmpty) {
+      return [singleLineText];
+    }
+
+    final List<String> resultLines = [];
+
+    for (int i = 0; i < matches.length; i++) {
+      final int start = matches[i].start;
+      final int end = (i + 1 < matches.length) ? matches[i + 1].start : singleLineText.length;
+
+      // 첫 번째 앵커 이전의 텍스트 처리
+      if (i == 0 && start > 0) {
+        final prefix = singleLineText.substring(0, start).trim();
+        if (prefix.isNotEmpty) {
+          resultLines.add(prefix);
+        }
+      }
+
+      final lineSegment = singleLineText.substring(start, end).trim();
+      if (lineSegment.isNotEmpty) {
+        resultLines.add(lineSegment);
+      }
+    }
+
+    return resultLines;
+  }
+
   List<String> _tokenize(String text, InputType inputType) {
     List<String> rawTokens = [];
 
