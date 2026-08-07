@@ -63,7 +63,7 @@ class TransactionParserConfig {
 }
 
 
-
+enum InputType { excel, csv, txt }
 
 /// 텍스트 입력을 분석하여 Map 형태의 가계부 데이터로 변환하는 서비스
 class TextParserService {
@@ -75,6 +75,7 @@ class TextParserService {
   // Config 객체 선언
   TransactionParserConfig _config = TransactionParserConfig();
 
+  // 수입/지출/결제수단 카테고리 매핑
   Map<String, List<String>> _incomeCategories = {};
   Map<String, List<String>> _expenseCategories = {};
   Map<String, List<String>> _payMethods = {};
@@ -124,34 +125,64 @@ class TextParserService {
     if (rawInput.trim().isEmpty) return '';
     return _config.cleanText(rawInput);
   }
+  
+  
+  /// 입력된 텍스트의 타입을 자동 감지하는 헬퍼 함수
+  InputType detectInputType(String rawInput) {
+    // \r 제거 후 줄 단위 분리
+    final lines = rawInput.replaceAll('\r', '').trim().split('\n');
+    if (lines.isEmpty) return InputType.txt;
 
-  /// 입력 텍스트를 날짜 기준으로 여러 줄(문장)로 분할/전처리하는 함수
-  List<String> parseInputLines(String rawInput) {
-    // 💡 1단계: Config 기반 사전 정제(전처리)로 잔액/승인번호 덩어리 제거
-    final cleanedText = _preCleanInput(rawInput);
-    if (cleanedText.isEmpty) return [];
+    // 빈 줄을 제외한 실제 데이터 줄 검사 (최대 5줄 샘플링)
+    final nonEmplyLines = lines.where((l) => l.trim().isNotEmpty).take(5).toList();
+    if (nonEmplyLines.isEmpty) return InputType.txt;
 
-    // 줄바꿈 보정
-    final singleLineText = cleanedText
+    // 1. Excel (Tab 구분) 규칙성 검사
+    final tabCounts = nonEmplyLines.map((l) => '\t'.allMatches(l).length).toList();
+    final firstTabCount = tabCounts.first;
+    if (firstTabCount > 0 && tabCounts.every((count) => count == firstTabCount)) {
+      return InputType.excel;
+    }
+
+    // 2. CSV (Comma 구분) 규칙성 검사
+    final csvCounts = nonEmplyLines.map((l) => ','.allMatches(l).length).toList();
+    final firstCsvCount = csvCounts.first;
+    if (firstCsvCount > 0 && csvCounts.every((count) => count == firstCsvCount)) {
+      return InputType.csv;
+    }
+
+    // 3. 규칙이 없으면 일반 TXT
+    return InputType.txt;
+  }
+
+  /// [TXT 전용] 금액+날짜/앵커 패턴 기준 분할 헬퍼 함수
+  List<String> _parseTxtLinesByAnchors(String text) {
+    // 줄바꿈 및 다중 공백 단일화
+    final singleLineText = text
         .replaceAll(RegExp(r'[\r\n]+'), ' ')
         .replaceAll(RegExp(r'\s+'), ' ')
         .trim();
 
-    final dateRegex = RegExp(
-      r'(?:\b\d{4}[./-]\d{1,2}[./-]\d{1,2}\b|\b\d{1,2}[./-]\d{1,2}\b)',
-    );
+    // 날짜 정규식 (YYYY-MM-DD, MM/DD 등)
+    final datePattern = r'(?:\b\d{4}[./-]\d{1,2}[./-]\d{1,2}\b|\b\d{1,2}[./-]\d{1,2}\b)';
+    // 금액 정규식 (예: 10,000원, 5000원, $100 등)
+    final amountPattern = r'(?:\b\d{1,3}(?:,\d{3})*원?\b|\$\d+(?:\.\d{2})?)';
 
-    final List<String> resultLines = [];
-    final matches = dateRegex.allMatches(singleLineText).toList();
+    // 날짜 또는 금액 중 하나라도 등장하는 지점을 앵커(구분 기준)로 지정
+    final anchorRegex = RegExp('$datePattern|$amountPattern');
+    final matches = anchorRegex.allMatches(singleLineText).toList();
 
     if (matches.isEmpty) {
       return [singleLineText];
     }
 
+    final List<String> resultLines = [];
+
     for (int i = 0; i < matches.length; i++) {
       final int start = matches[i].start;
       final int end = (i + 1 < matches.length) ? matches[i + 1].start : singleLineText.length;
 
+      // 첫 번째 앵커 이전의 텍스트 처리
       if (i == 0 && start > 0) {
         final prefix = singleLineText.substring(0, start).trim();
         if (prefix.isNotEmpty) {
@@ -166,6 +197,33 @@ class TextParserService {
     }
 
     return resultLines;
+  }
+
+  /// [메인] 입력 텍스트를 인식된 타입에 따라 파싱하는 함수
+  List<String> parseInputLines(String rawInput) {
+    if (rawInput.trim().isEmpty) return [];
+
+    // 1단계: 원본(rawInput) 상태에서 입력 데이터 타입부터 먼저 감지
+    final inputType = detectInputType(rawInput);
+
+    // 2단계: 타입별 파싱 분기
+    switch (inputType) {
+      case InputType.excel:
+      case InputType.csv:
+        // Excel/CSV: 원본 줄바꿈(\n) 기준으로 분할 후, 각 줄에 대해 전처리(Pre-clean) 적용
+        return rawInput
+            .replaceAll('\r', '')
+            .split('\n')
+            .map((line) => _preCleanInput(line).trim())
+            .where((line) => line.isNotEmpty)
+            .toList();
+
+      case InputType.txt:
+        // TXT: 전체 원본을 먼저 전처리한 후, 날짜 + 금액 앵커 기반으로 분할
+        final cleanedText = _preCleanInput(rawInput);
+        if (cleanedText.trim().isEmpty) return [];
+        return _parseTxtLinesByAnchors(cleanedText);
+    }
   }
 
   /// 단일 줄 텍스트를 파싱하여 Map<String, dynamic> 형태로 반환
