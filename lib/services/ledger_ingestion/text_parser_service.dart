@@ -260,7 +260,8 @@ class TextParserService {
       description = category ?? "미지정 내역";
     }
 
-    return {
+    // 💡 1. 반환할 Map 결과 생성
+    final result = {
       'date': date,
       'type': type,
       'payMethod': payMethod,
@@ -268,6 +269,12 @@ class TextParserService {
       'amount': amount,
       'category': category ?? "미입력",
     };
+    
+    // 💡 2. 결과 출력 (콘솔 확인용)
+    print("✅ [파싱 결과 Map]: $result");
+
+    // 💡 3. 반환
+    return result;
   }
 
   // ==========================================
