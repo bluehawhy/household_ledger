@@ -57,7 +57,6 @@ class TransactionParserConfig {
         // 정규식 예외 발생 시 무시
       }
     }
-
     return cleaned.replaceAll(RegExp(r'\s+'), ' ').trim();
   }
 }
@@ -205,6 +204,7 @@ class TextParserService {
 
     // 1단계: 원본(rawInput) 상태에서 입력 데이터 타입부터 먼저 감지
     final inputType = detectInputType(rawInput);
+    print("🔹 감지된 입력 타입: $inputType");
 
     // 2단계: 타입별 파싱 분기
     switch (inputType) {
@@ -227,15 +227,16 @@ class TextParserService {
   }
 
   /// 단일 줄 텍스트를 파싱하여 Map<String, dynamic> 형태로 반환
-  Map<String, dynamic> parseSingleLineToMap(String input) {
+  Map<String, dynamic> parseSingleLineToMap(String input, {InputType inputType = InputType.txt,}) {
     // 💡 단일 문장 파싱 시작 시점에도 Pre-cleaning 적용
     String rawText = _preCleanInput(input);
     if (rawText.isEmpty) {
       throw FormatException("입력된 텍스트가 비어있습니다.");
     }
 
-    List<String> tokens = _tokenize(rawText);
-    print("🔹 토큰화된 입력: $tokens");
+    // 💡 타입별 토큰화 적용!
+    List<String> tokens = _tokenize(rawText, inputType);
+    print("🔹 토큰화된 입력 ($inputType): $tokens");
 
     DateTime? date;
     int? amount;
@@ -353,12 +354,32 @@ class TextParserService {
   // ==========================================
   // Private 헬퍼 함수들
   // ==========================================
+  List<String> _tokenize(String text, InputType inputType) {
+    List<String> rawTokens = [];
 
-  List<String> _tokenize(String text) {
-    List<String> tokens = text.contains('\t')
-        ? text.split(RegExp(r'\t+'))
-        : text.split(RegExp(r'\s+'));
-    return tokens.map((e) => e.trim()).where((e) => e.isNotEmpty).toList();
+    switch (inputType) {
+      case InputType.excel:
+        // Excel: 탭(\t) 구분자로 분할
+        rawTokens = text.split(RegExp(r'\t+'));
+        break;
+
+      case InputType.csv:
+        // CSV: 쉼표(,) 구분자로 분할 (줄 내부 공백은 보존)
+        rawTokens = text.split(',');
+        break;
+
+      case InputType.txt:
+        // TXT: 기존 방식대로 탭이 포함되어 있으면 탭 기준, 아니면 공백(\s+) 기준
+        rawTokens = text.contains('\t')
+            ? text.split(RegExp(r'\t+'))
+            : text.split(RegExp(r'\s+'));
+        break;
+    }
+
+    return rawTokens
+        .map((e) => e.trim())
+        .where((e) => e.isNotEmpty)
+        .toList();
   }
 
   DateTime? _parseDate(String token) {
