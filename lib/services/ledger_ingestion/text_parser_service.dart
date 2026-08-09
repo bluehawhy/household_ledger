@@ -75,8 +75,10 @@ class TextParserService {
   TransactionParserConfig _config = TransactionParserConfig();
 
   // 수입/지출/결제수단 카테고리 매핑
-  Map<String, List<String>> _incomeCategories = {};
-  Map<String, List<String>> _expenseCategories = {};
+  //Map<String, List<String>> _incomeCategories = {};
+  //Map<String, List<String>> _expenseCategories = {};
+  Map<String, dynamic> _incomeCategories = {};
+  Map<String, dynamic> _expenseCategories = {};
   Map<String, List<String>> _payMethods = {};
   Map<String, dynamic> _binData = {};
 
@@ -98,20 +100,36 @@ class TextParserService {
       _config = TransactionParserConfig.fromJson(data);
 
       // 2. 수입/지출/결제수단 카테고리 로드
+
       if (data.containsKey("수입 분류")) {
-        final Map<String, dynamic> map = data["수입 분류"];
-        _incomeCategories = map.map((k, v) => MapEntry(k, List<String>.from(v)));
+        _incomeCategories = Map<String, dynamic>.from(data["수입 분류"]);
       }
 
       if (data.containsKey("지출 분류")) {
-        final Map<String, dynamic> map = data["지출 분류"];
-        _expenseCategories = map.map((k, v) => MapEntry(k, List<String>.from(v)));
+        _expenseCategories = Map<String, dynamic>.from(data["지출 분류"]);
       }
 
       if (data.containsKey("지출 수단")) {
-        final Map<String, dynamic> map = data["지출 수단"];
-        _payMethods = map.map((k, v) => MapEntry(k, List<String>.from(v)));
+        _payMethods = (data["지출 수단"] as Map<String, dynamic>).map(
+          (k, v) => MapEntry(k, List<String>.from(v)),
+        );
       }
+
+
+      //if (data.containsKey("수입 분류")) {
+      //  final Map<String, dynamic> map = data["수입 분류"];
+      //  _incomeCategories = map.map((k, v) => MapEntry(k, List<String>.from(v)));
+      //}
+
+      //if (data.containsKey("지출 분류")) {
+      //  final Map<String, dynamic> map = data["지출 분류"];
+      //  _expenseCategories = map.map((k, v) => MapEntry(k, List<String>.from(v)));
+      //}
+
+      //if (data.containsKey("지출 수단")) {
+      //  final Map<String, dynamic> map = data["지출 수단"];
+      //  _payMethods = map.map((k, v) => MapEntry(k, List<String>.from(v)));
+      //}
 
       print("✅ [TextParserService] '$filePath' 카테고리 매핑 로드 완료");
     } catch (e) {
@@ -314,45 +332,96 @@ class TextParserService {
     return InputType.txt;
   }
 
-  /// [TXT 전용] 금액+날짜/앵커 패턴 기준 분할 헬퍼 함수
-  List<String> _parseTxtLinesByAnchors(String text) {
-    // 줄바꿈 및 다중 공백 단일화
-    final singleLineText = text
-        .replaceAll(RegExp(r'[\r\n]+'), ' ')
-        .replaceAll(RegExp(r'\s+'), ' ')
-        .trim();
 
-    // 날짜 정규식 (YYYY-MM-DD, MM/DD 등)
-    final datePattern = r'(?:\b\d{4}[./-]\d{1,2}[./-]\d{1,2}\b|\b\d{1,2}[./-]\d{1,2}\b)';
-    // 금액 정규식 (예: 10,000원, 5000원, $100 등)
-    final amountPattern = r'(?:\b\d{1,3}(?:,\d{3})*원?\b|\$\d+(?:\.\d{2})?)';
+  /// [TXT 전용] config 정규식 + 줄바꿈 기반 완성도(날짜+금액) 분할 함수
+  List<String> _parseTxtLinesByAnchors(
+    String text, {
+    TransactionParserConfig? config,
+  }) {
+    if (text.trim().isEmpty) return [];
 
-    // 날짜 또는 금액 중 하나라도 등장하는 지점을 앵커(구분 기준)로 지정
-    final anchorRegex = RegExp('$datePattern|$amountPattern');
-    final matches = anchorRegex.allMatches(singleLineText).toList();
+    final dateRegex = RegExp(
+      r'(?:\b\d{4}[./-]\d{1,2}[./-]\d{1,2}\b|\b\d{1,2}[./-]\d{1,2}\b)',
+    );
+    final amountRegex = RegExp(
+      r'(?:\b\d{1,3}(?:,\d{3})+원?\b|\b\d{3,}원\b|\$\d+(?:\.\d{2})?)',
+    );
 
-    if (matches.isEmpty) {
-      return [singleLineText];
-    }
+    // =========================================================================
+    // 1단계: 줄바꿈 단위를 유지하며 config 기반 무시 패턴/키워드 제거
+    // =========================================================================
+    final rawLines = text.split(RegExp(r'[\r\n]+'));
+    final List<String> cleanedLines = [];
 
-    final List<String> resultLines = [];
+    for (final rawLine in rawLines) {
+      String line = rawLine;
 
-    for (int i = 0; i < matches.length; i++) {
-      final int start = matches[i].start;
-      final int end = (i + 1 < matches.length) ? matches[i + 1].start : singleLineText.length;
-
-      // 첫 번째 앵커 이전의 텍스트 처리
-      if (i == 0 && start > 0) {
-        final prefix = singleLineText.substring(0, start).trim();
-        if (prefix.isNotEmpty) {
-          resultLines.add(prefix);
+      if (config != null) {
+        // 잔액, 승인번호 등 설정된 정규식 패턴 제거
+        for (final pattern in config.ignoredPatterns) {
+          line = line.replaceAll(pattern, ' ');
+        }
+        // 무시 단어 제거
+        for (final word in config.ignoredWords) {
+          line = line.replaceAll(word, ' ');
         }
       }
 
-      final lineSegment = singleLineText.substring(start, end).trim();
-      if (lineSegment.isNotEmpty) {
-        resultLines.add(lineSegment);
+      line = line.replaceAll(RegExp(r'\s+'), ' ').trim();
+      if (line.isNotEmpty) {
+        cleanedLines.add(line);
       }
+    }
+
+    if (cleanedLines.isEmpty) return [];
+
+    // =========================================================================
+    // 2단계: 줄바꿈 기준으로 '날짜+금액 완성 여부'에 따른 그룹 분할
+    // =========================================================================
+    final List<List<String>> transactionGroups = [];
+    List<String> currentGroup = [];
+
+    for (int i = 0; i < cleanedLines.length; i++) {
+      final line = cleanedLines[i];
+
+      // 현재 수집된 그룹의 텍스트와 완성도(날짜+금액) 체크
+      final groupText = currentGroup.join(' ');
+      final hasDateInGroup = dateRegex.hasMatch(groupText);
+      final hasAmountInGroup = amountRegex.hasMatch(groupText);
+      final isGroupComplete = hasDateInGroup && hasAmountInGroup;
+
+      // 남은 줄들에 다른 거래(날짜/금액)가 아직 존재하는지 체크
+      final remainingText = cleanedLines.sublist(i).join(' ');
+      final remainingHasDate = dateRegex.hasMatch(remainingText);
+      final remainingHasAmount = amountRegex.hasMatch(remainingText);
+
+      // 💡 [핵심 분할 조건]
+      // 이전 그룹이 (날짜+금액)을 다 갖추어 완성이 되었고,
+      // 남아있는 뒤쪽 텍스트에 새로운 거래(날짜/금액)가 들어있다면 -> 새로 읽은 줄부터 새 그룹 시작!
+      if (isGroupComplete && (remainingHasDate || remainingHasAmount)) {
+        transactionGroups.add(List.from(currentGroup));
+        currentGroup.clear();
+      }
+
+      currentGroup.add(line);
+    }
+
+    // 마지막 모인 그룹 추가
+    if (currentGroup.isNotEmpty) {
+      transactionGroups.add(currentGroup);
+    }
+
+    // =========================================================================
+    // 3단계: 그룹별 문장 결합
+    // =========================================================================
+    final List<String> resultLines = transactionGroups
+        .map((g) => g.join(' ').replaceAll(RegExp(r'\s+'), ' ').trim())
+        .where((s) => s.isNotEmpty)
+        .toList();
+
+    print("🔹 [TXT 전용] 완성도 기반 분할 결과 (${resultLines.length}개):");
+    for (int idx = 0; idx < resultLines.length; idx++) {
+      print("   Line ${idx + 1}: \"${resultLines[idx]}\"");
     }
 
     return resultLines;
@@ -467,23 +536,50 @@ class TextParserService {
     return '신용카드';
   }
 
+
+
   String? _matchCategory(String token, {required TransactionType type}) {
     final categories = (type == TransactionType.income) ? _incomeCategories : _expenseCategories;
 
+    // 1. 대분류 키(예: 교통비) 직접 포함 여부 체크
     for (var categoryKey in categories.keys) {
       if (token.contains(categoryKey)) {
         return categoryKey;
       }
     }
 
+    // 2. 카테고리 구조 순회
     for (var entry in categories.entries) {
-      for (var keyword in entry.value) {
-        if (token.contains(keyword)) {
-          return entry.key;
+      final dynamic subContent = entry.value;
+
+      // A. 하위 구조가 Map인 경우 (2계층: 교통비 -> 차량/주유 -> [키워드들])
+      if (subContent is Map) {
+        for (var subEntry in subContent.entries) {
+          //final subCategoryKey = subEntry.key.toString();
+          final keywords = subEntry.value;
+
+          if (keywords is List) {
+            for (var keyword in keywords) {
+              if (token.contains(keyword.toString())) {
+                return entry.key; // "차량/주유" 반환 (대분류를 원하시면 entry.key 반환)
+              }
+            }
+          }
+        }
+      } 
+      // B. 하위 구조가 List인 경우 (1계층: 식비 -> [키워드들])
+      else if (subContent is List) {
+        for (var keyword in subContent) {
+          if (token.contains(keyword.toString())) {
+            return entry.key;
+          }
         }
       }
     }
 
     return null;
   }
+
+
+
 }
