@@ -2,12 +2,6 @@ import 'package:googleapis/sheets/v4.dart' as sheets;
 import 'package:household_ledger/services/ledger_ingestion/ledger_item.dart';
 import 'package:household_ledger/services/google_drive/google_spreadsheet.dart';
 
-/// 파싱 및 시트 데이터 추가 결과 상태
-enum ParseResult {
-  success,   // 성공적으로 추가됨
-  duplicate, // 중복 데이터로 확인되어 스킵됨
-  fail,      // 비어있거나 파싱/API 통신 에러 등 실패
-}
 
 /// 단일 입력을 Google Sheets에 전송하는 입력 서비스
 class SingleEntryService {

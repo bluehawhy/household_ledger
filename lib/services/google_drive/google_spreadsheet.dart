@@ -415,6 +415,11 @@ class HouseholdSheetService {
     required LedgerItem item,
     String? spreadsheetId,
   }) async {
+    // 💡 0원 이하 데이터 스킵 (item.amount 확인)
+    if (item.amount <= 0) {
+      print("⚠️ [0원 패스] [${item.formattedDate}] '${item.description}' 금액이 0원이므로 저장하지 않습니다.");
+      return;
+    }
     if (!categoryMapper.isLoaded) {
       await categoryMapper.loadCategoryJson();
     }
@@ -529,6 +534,8 @@ class HouseholdSheetService {
       final List<List<Object?>> expenseRows = [];
 
       for (final item in items) {
+        // 💡 0원 이하 항목은 저장하지 않고 스킵
+        if (item.amount <= 0) continue;
         final formattedDate = item.formattedDate;
         final incomeKeywords = ["수입", "입금", "월급", "환불"];
         final String categoryStr = item.category ?? '';
@@ -674,6 +681,11 @@ class HouseholdSheetService {
     List<List<dynamic>> existingRows,
     LedgerItem item,
   ) async {
+      // 🎯 최하단 방어선: 0원 이하 데이터는 절대 시트에 쓰지 않음
+    if (item.amount <= 0) {
+      print("⚠️ [0원 패스] [${item.formattedDate}] '${item.description}' 금액이 0원이므로 저장하지 않습니다.");
+      return false;
+    }
     if (existingRows.isEmpty) return false;
 
     final isIncome = item.type == TransactionType.income;

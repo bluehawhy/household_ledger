@@ -3,6 +3,13 @@
 /// 거래 유형 (수입 / 지출)
 enum TransactionType { income, expense }
 
+/// 파싱 및 시트 데이터 추가 결과 상태
+enum ParseResult {
+  success,   // 성공적으로 추가됨
+  duplicate, // 중복 데이터로 확인되어 스킵됨
+  fail,      // 비어있거나 파싱/API 통신 에러 등 실패
+}
+
 /// 가계부 거래 항목 모델
 class LedgerItem {
   final DateTime date; // 입력 날짜
