@@ -25,7 +25,7 @@ class TransactionParserConfig {
 
   /// 토큰 단위 검사
   bool isIgnored(String token) {
-    if (ignoredWords.any((word) => token.contains(word))) {
+    if (ignoredWords.any((word) => token == word)) {
       return true;
     }
     if (ignoredPatterns.any((pattern) => pattern.hasMatch(token))) {
@@ -515,14 +515,37 @@ class TextParserService {
     return false;
   }
 
+
   String? _matchPayMethod(String token) {
+    if (token.trim().isEmpty) return null;
+
+    // 공백 및 소문자 정제
+    final cleanToken = token.replaceAll(' ', '').toLowerCase();
+
     for (var entry in _payMethods.entries) {
-      for (var keyword in entry.value) {
-        if (token.contains(keyword)) return entry.key;
+      final String mainMethod = entry.key; // 예: "체크카드"
+      final dynamic keywords = entry.value;
+
+      // 1. 최상단 Key("체크카드", "신용카드" 등)가 토큰에 포함되어 있는지 확인
+      if (cleanToken.contains(mainMethod.toLowerCase())) {
+        return mainMethod; // 바로 "체크카드" 리턴!
+      }
+
+      // 2. Value 리스트("카카오뱅크", "토스뱅크" 등) 순회 검사
+      if (keywords is List) {
+        for (var kw in keywords) {
+          final keyword = kw.toString().replaceAll(' ', '').toLowerCase();
+          if (keyword.isNotEmpty && keyword.contains(cleanToken)) {
+            return mainMethod; // 매칭된 최상단 Key 반환
+          }
+        }
       }
     }
+
     return null;
   }
+
+
 
   String _detectCardIssuer(String token) {
     final clean = token.replaceAll(RegExp(r'[^0-9]'), '');
@@ -535,8 +558,6 @@ class TextParserService {
     }
     return '신용카드';
   }
-
-
 
   String? _matchCategory(String token, {required TransactionType type}) {
     final categories = (type == TransactionType.income) ? _incomeCategories : _expenseCategories;
