@@ -1,3 +1,5 @@
+//goole_spreadsheet.dart
+
 import 'dart:convert';
 import 'package:googleapis/drive/v3.dart' as drive;
 import 'package:googleapis/sheets/v4.dart' as sheets;
@@ -485,6 +487,136 @@ class HouseholdSheetService {
       existingRows,
       item,
     );
+  }
+
+
+  // ==========================================================================
+  // 🟡 [기능 B-2] 수입 / 지출 내역 수정(업데이트) 로직
+  // ==========================================================================
+
+  /// 기존 내역(oldItem)을 찾아서 새 내역(newItem)으로 업데이트합니다.
+  Future<bool> updateTransaction({
+    required AuthClient client,
+    required LedgerItem oldItem,
+    required LedgerItem newItem,
+    String? spreadsheetId,
+  }) async {
+    // 1. 0원 이하 체크
+    if (newItem.amount <= 0) {
+      print("⚠️ [0원 패스] 수정하려는 금액이 0원 이하입니다.");
+      return false;
+    }
+
+    if (!categoryMapper.isLoaded) {
+      await categoryMapper.loadCategoryJson();
+    }
+
+    final sheetsApi = sheets.SheetsApi(client);
+
+    // 2. 스프레드시트 ID 확인 (기존 연도 기준)
+    final targetSpreadsheetId = (spreadsheetId != null && spreadsheetId.isNotEmpty)
+        ? spreadsheetId
+        : await setupLedgerSpreadsheetForYear(client, oldItem.date.year);
+
+    // 새 카테고리 자동 설정
+    if (newItem.category == null || newItem.category!.isEmpty) {
+      newItem.category = categoryMapper.getCategory(
+        newItem.description,
+        isIncome: newItem.type == TransactionType.income,
+      );
+    }
+
+    final monthSheetName = '${oldItem.date.month}월';
+    final range = "'$monthSheetName'!A1:J1000";
+
+    try {
+      // 3. 시트 전체 행 읽어오기
+      final response = await sheetsApi.spreadsheets.values.get(
+        targetSpreadsheetId,
+        range,
+      );
+
+      final List<List<dynamic>> rows = response.values ?? [];
+      if (rows.isEmpty) {
+        print("⚠️ [$monthSheetName] 시트에 데이터가 존재하지 않습니다.");
+        return false;
+      }
+
+      final isIncome = oldItem.type == TransactionType.income;
+
+      // 컬럼 인덱스 정의 (A~D: 수입, F~J: 지출)
+      final dateIdx = isIncome ? 0 : 5;
+      final descIdx = isIncome ? 2 : 8;
+      final amountIdx = isIncome ? 3 : 9;
+
+      int targetRowIndex = -1; // 1-based Row Index for Google Sheets
+
+      // 4. oldItem과 일치하는 행 번호 찾기 (헤더 행 0번은 제외하고 1번부터 순회)
+      for (int i = 1; i < rows.length; i++) {
+        final row = rows[i];
+        if (row.length > amountIdx) {
+          final existingDate = row[dateIdx].toString().trim();
+          final existingDesc = row[descIdx].toString().trim();
+          final existingAmount = row[amountIdx].toString().replaceAll(',', '').trim();
+
+          if (existingDate == oldItem.formattedDate.trim() &&
+              existingDesc == oldItem.description.trim() &&
+              existingAmount == oldItem.amount.toString().trim()) {
+            targetRowIndex = i + 1; // Google Sheets의 실제 행 번호 (1-based)
+            break;
+          }
+        }
+      }
+
+      if (targetRowIndex == -1) {
+        print("⚠️ [$monthSheetName] 수정할 기존 내역을 시트에서 찾을 수 없습니다: "
+            "[${oldItem.formattedDate}] ${oldItem.description} (${oldItem.amount}원)");
+        return false;
+      }
+
+      // 5. 업데이트할 범위 및 데이터 구성
+      final List<Object?> rowData = isIncome
+          ? [
+              newItem.formattedDate,
+              newItem.category,
+              newItem.description,
+              newItem.amount,
+            ]
+          : [
+              newItem.formattedDate,
+              newItem.payMethod ?? "현금",
+              newItem.category,
+              newItem.description,
+              newItem.amount,
+            ];
+
+      // 수입: A~D열 / 지출: F~J열
+      final startCol = isIncome ? 'A' : 'F';
+      final endCol = isIncome ? 'D' : 'J';
+      final targetRange = "'$monthSheetName'!$startCol$targetRowIndex:$endCol$targetRowIndex";
+
+      // 6. 해당 위치에 덮어쓰기 (Update)
+      final valueRange = sheets.ValueRange(
+        range: targetRange,
+        values: [rowData],
+      );
+
+      await sheetsApi.spreadsheets.values.update(
+        valueRange,
+        targetSpreadsheetId,
+        targetRange,
+        valueInputOption: "USER_ENTERED",
+      );
+
+      print("✅ [$monthSheetName] 내역 수정 완료! (행: $targetRowIndex, 범위: $targetRange)");
+      return true;
+    } on sheets.DetailedApiRequestError catch (e) {
+      print("❌ [$monthSheetName] 시트 업데이트 API 에러 (${e.status}): ${e.message}");
+      return false;
+    } catch (e) {
+      print("❌ [$monthSheetName] 내역 수정 중 예외 발생: $e");
+      return false;
+    }
   }
 
   /// 월별 다중 항목 배치 전송 (단 1회의 API 호출로 처리)

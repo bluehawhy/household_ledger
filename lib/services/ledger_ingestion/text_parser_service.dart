@@ -455,30 +455,46 @@ class TextParserService {
         .toList();
   }
 
-  DateTime? _parseDate(String token) {
-    if (token == "오늘") return DateTime.now();
-    if (token == "어제") return DateTime.now().subtract(const Duration(days: 1));
+DateTime? _parseDate(dynamic input) {
+  // 1. 이미 DateTime 객체로 들어온 경우 그대로 반환
+  if (input is DateTime) return input;
 
-    final fullMatch = _fullDatePattern.firstMatch(token);
-    if (fullMatch != null) {
-      return DateTime(
-        int.parse(fullMatch.group(1)!),
-        int.parse(fullMatch.group(2)!),
-        int.parse(fullMatch.group(3)!),
-      );
-    }
+  // 2. 문자열이 아닌 경우 null 반환
+  if (input is! String) return null;
 
-    final shortMatch = _shortDatePattern.firstMatch(token);
-    if (shortMatch != null) {
-      return DateTime(
-        DateTime.now().year,
-        int.parse(shortMatch.group(1)!),
-        int.parse(shortMatch.group(2)!),
-      );
-    }
+  final token = input.trim();
 
-    return null;
+  // 3. 상대 날짜 키워드 처리
+  if (token == "오늘") return DateTime.now();
+  if (token == "어제") return DateTime.now().subtract(const Duration(days: 1));
+
+  // 4. ISO8601 표준 포맷(2026-08-21 또는 2026-08-21T00:00:00) 파싱 시도
+  final isoParsed = DateTime.tryParse(token);
+  if (isoParsed != null) return isoParsed;
+
+  // 5. 정규식 포맷 파싱 (YYYY-MM-DD 등)
+  final fullMatch = _fullDatePattern.firstMatch(token);
+  if (fullMatch != null) {
+    return DateTime(
+      int.parse(fullMatch.group(1)!),
+      int.parse(fullMatch.group(2)!),
+      int.parse(fullMatch.group(3)!),
+    );
   }
+
+  // 6. 정규식 포맷 파싱 (MM-DD 등)
+  final shortMatch = _shortDatePattern.firstMatch(token);
+  if (shortMatch != null) {
+    return DateTime(
+      DateTime.now().year,
+      int.parse(shortMatch.group(1)!),
+      int.parse(shortMatch.group(2)!),
+    );
+  }
+
+  return null;
+}
+
 
   int? _parseAmount(String token) {
     final match = _amountPattern.firstMatch(token);

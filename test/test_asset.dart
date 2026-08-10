@@ -1,6 +1,5 @@
 import 'dart:convert';
 import 'package:household_ledger/services/utils/asset_loader.dart';
-import 'package:household_ledger/services/ledger_ingestion/text_parser_service.dart';
 
 // 1. Dart 실행을 위한 main 함수 추가
 void main() async {

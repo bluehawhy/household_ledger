@@ -182,8 +182,9 @@ class LedgerIngestionUIState extends State<LedgerIngestionUI> {
           itemMap,
         );
 
-        if (result == ParseResult.success) successCount++;
-        else if (result == ParseResult.duplicate) duplicateCount++;
+        if (result == ParseResult.success) {
+          successCount++;
+        } else if (result == ParseResult.duplicate) duplicateCount++;
         else failCount++;
 
       } else if (lines.length > 1) {
