@@ -1,15 +1,17 @@
+//overview_ui.dart
 import 'package:flutter/material.dart';
 import 'package:google_sign_in/google_sign_in.dart';
 import 'package:fl_chart/fl_chart.dart';
 import 'package:googleapis_auth/googleapis_auth.dart';
-import 'package:intl/intl.dart'; // 💡 원화 포맷팅을 위해 추가
+import 'package:intl/intl.dart';
 
-// 서비스 클래스 임포트
+// 서비스 및 UI 클래스 임포트
 import 'package:household_ledger/services/auth/google_auth.dart';
 import 'package:household_ledger/services/google_drive/google_spreadsheet.dart';
 
 import 'ledger_ingestion_ui.dart';
 import 'setting_ui.dart';
+import 'category_detail_ui.dart'; // 💡 CategoryDetailUI 임포트 추가
 
 class OverviewPage extends StatefulWidget {
   final GoogleSignInAccount googleUser;
@@ -29,12 +31,16 @@ class _OverviewPageState extends State<OverviewPage> {
   final GoogleAuthManager _authManager = GoogleAuthManager();
   final HouseholdSheetService _sheetService = HouseholdSheetService();
 
-  // 통화 포맷터 (예: 1,000,000)
+  // 통화 포맷터
   final NumberFormat _currencyFormatter = NumberFormat('#,###');
 
   // 데이터 상태 변수
   bool _isLoading = true;
   String? _errorMessage;
+
+  // 💡 원본 아이템 리스트 저장용 변수 추가
+  List<dynamic> _rawExpenses = [];
+  List<dynamic> _rawIncomes = [];
 
   int _totalExpense = 0;
   Map<String, int> _expenseCategories = {};
@@ -51,7 +57,7 @@ class _OverviewPageState extends State<OverviewPage> {
 
   @override
   void dispose() {
-    _pageController.dispose(); // 💡 메모리 누수 방지 컨트롤러 해제
+    _pageController.dispose();
     super.dispose();
   }
 
@@ -67,10 +73,8 @@ class _OverviewPageState extends State<OverviewPage> {
       final targetYear = now.year;
       final targetMonth = now.month;
 
-      // 1. Google OAuth 인증 클라이언트 획득 (MainUI와 동일한 세션 공유)
       final AuthClient client = await _authManager.getClient();
 
-      // 2. 이번 달 수입 / 지출 내역 병렬 조회
       final results = await Future.wait([
         _sheetService.getMonthlyExpenses(
           client: client,
@@ -87,7 +91,7 @@ class _OverviewPageState extends State<OverviewPage> {
       final expenses = results[0];
       final incomes = results[1];
 
-      // 3. 지출 데이터 집계
+      // 1. 지출 데이터 집계
       int totalExp = 0;
       final Map<String, int> expCatMap = {};
       final Map<String, int> expMethodMap = {};
@@ -107,7 +111,7 @@ class _OverviewPageState extends State<OverviewPage> {
         }
       }
 
-      // 4. 수입 데이터 집계
+      // 2. 수입 데이터 집계
       int totalInc = 0;
       final Map<String, int> incCatMap = {};
 
@@ -121,9 +125,12 @@ class _OverviewPageState extends State<OverviewPage> {
         incCatMap[category] = (incCatMap[category] ?? 0) + amount;
       }
 
-      // 5. 상태 업데이트
+      // 3. 상태 업데이트 (원본 리스트도 함께 저장)
       if (mounted) {
         setState(() {
+          _rawExpenses = expenses; // 💡 원본 리스트 저장
+          _rawIncomes = incomes;   // 💡 원본 리스트 저장
+
           _totalExpense = totalExp;
           _expenseCategories = expCatMap;
           _expenseMethods = expMethodMap;
@@ -145,10 +152,50 @@ class _OverviewPageState extends State<OverviewPage> {
     }
   }
 
+  // 💡 선택한 카테고리 상세 페이지로 이동
+  void _navigateToCategoryDetail({
+    required String categoryName,
+    required bool isExpense,
+    bool isPayMethod = false,
+  }) {
+    List<dynamic> filteredItems = [];
 
+    if (isExpense) {
+      if (isPayMethod) {
+        // 결제 수단 기준 필터링
+        filteredItems = _rawExpenses.where((item) {
+          return (item.payMethod ?? '') == categoryName;
+        }).toList();
+      } else {
+        // 지출 카테고리 기준 필터링
+        filteredItems = _rawExpenses.where((item) {
+          final cat = (item.category != null && item.category!.isNotEmpty)
+              ? item.category!
+              : '미분류';
+          return cat == categoryName;
+        }).toList();
+      }
+    } else {
+      // 수입 카테고리 기준 필터링
+      filteredItems = _rawIncomes.where((item) {
+        final cat = (item.category != null && item.category!.isNotEmpty)
+            ? item.category!
+            : '미분류';
+        return cat == categoryName;
+      }).toList();
+    }
 
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (context) => CategoryDetailUI(
+          categoryName: categoryName,
+          items: filteredItems,
+          isExpense: isExpense,
+        ),
+      ),
+    );
+  }
 
-  // 내역 입력 화면 이동 (입력 후 돌아오면 자동 새로고침)
   Future<void> _navigateToIngestion() async {
     await Navigator.of(context).push(
       MaterialPageRoute(
@@ -157,7 +204,6 @@ class _OverviewPageState extends State<OverviewPage> {
         ),
       ),
     );
-    // 내역 입력 화면에서 돌아온 후 데이터 다시 로드
     _loadMonthlyData();
   }
 
@@ -225,7 +271,6 @@ class _OverviewPageState extends State<OverviewPage> {
                   onRefresh: _loadMonthlyData,
                   child: Column(
                     children: [
-                      // 인사말 영역
                       Padding(
                         padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 8.0),
                         child: Align(
@@ -236,8 +281,6 @@ class _OverviewPageState extends State<OverviewPage> {
                           ),
                         ),
                       ),
-
-                      // 지출 / 수입 상단 인디케이터 탭
                       Row(
                         mainAxisAlignment: MainAxisAlignment.center,
                         children: [
@@ -246,10 +289,7 @@ class _OverviewPageState extends State<OverviewPage> {
                           _buildTabButton('수입', 1),
                         ],
                       ),
-
                       const SizedBox(height: 10),
-
-                      // 좌우 스와이프 영역 (PageView)
                       Expanded(
                         child: PageView(
                           controller: _pageController,
@@ -266,6 +306,7 @@ class _OverviewPageState extends State<OverviewPage> {
                               categoryData: _expenseCategories,
                               methodData: _expenseMethods,
                               colorScheme: Colors.redAccent,
+                              isExpense: true,
                             ),
                             // 2페이지: 수입 화면
                             _buildOverviewSection(
@@ -274,6 +315,7 @@ class _OverviewPageState extends State<OverviewPage> {
                               categoryData: _incomeCategories,
                               methodData: null,
                               colorScheme: Colors.blueAccent,
+                              isExpense: false,
                             ),
                           ],
                         ),
@@ -289,7 +331,6 @@ class _OverviewPageState extends State<OverviewPage> {
     );
   }
 
-  // 상단 탭 버튼 생성
   Widget _buildTabButton(String title, int pageIndex) {
     final isSelected = _currentPage == pageIndex;
     return GestureDetector(
@@ -317,18 +358,18 @@ class _OverviewPageState extends State<OverviewPage> {
     );
   }
 
-  // 지출/수입 세부 구성 템플릿
   Widget _buildOverviewSection({
     required String title,
     required int totalAmount,
     required Map<String, int> categoryData,
     Map<String, int>? methodData,
     required Color colorScheme,
+    required bool isExpense, // 💡 수입/지출 구분 파라미터 추가
   }) {
     final bool hasCategoryData = categoryData.isNotEmpty;
 
     return SingleChildScrollView(
-      physics: const AlwaysScrollableScrollPhysics(), // RefreshIndicator 작동용
+      physics: const AlwaysScrollableScrollPhysics(),
       padding: const EdgeInsets.all(16.0),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -381,15 +422,22 @@ class _OverviewPageState extends State<OverviewPage> {
           ),
           const SizedBox(height: 16),
 
-          // 3. 분류별 내역
+          // 3. 분류별 내역 (클릭 가능하도록 탭 이벤트 추가)
           const Text(
-            '분류별 상세',
+            '분류별 상세 (클릭시 세부 내역 이동)',
             style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
           ),
           const SizedBox(height: 8),
           if (hasCategoryData)
             ...categoryData.entries.map((entry) {
-              return _buildDetailTile(entry.key, entry.value);
+              return _buildDetailTile(
+                name: entry.key,
+                amount: entry.value,
+                onTap: () => _navigateToCategoryDetail(
+                  categoryName: entry.key,
+                  isExpense: isExpense,
+                ),
+              );
             })
           else
             const Padding(
@@ -407,7 +455,15 @@ class _OverviewPageState extends State<OverviewPage> {
             const SizedBox(height: 8),
             if (methodData.isNotEmpty)
               ...methodData.entries.map((entry) {
-                return _buildDetailTile(entry.key, entry.value);
+                return _buildDetailTile(
+                  name: entry.key,
+                  amount: entry.value,
+                  onTap: () => _navigateToCategoryDetail(
+                    categoryName: entry.key,
+                    isExpense: true,
+                    isPayMethod: true, // 💡 결제 수단 전용 필터 플래그
+                  ),
+                );
               })
             else
               const Padding(
@@ -420,8 +476,12 @@ class _OverviewPageState extends State<OverviewPage> {
     );
   }
 
-  // 상세 ListTile 생성
-  Widget _buildDetailTile(String name, int amount) {
+  // 💡 ListTile에 InkWell 및 화살표 아이콘(chevron_right) 추가
+  Widget _buildDetailTile({
+    required String name,
+    required int amount,
+    required VoidCallback onTap,
+  }) {
     return Container(
       margin: const EdgeInsets.only(bottom: 6),
       decoration: BoxDecoration(
@@ -431,16 +491,23 @@ class _OverviewPageState extends State<OverviewPage> {
       ),
       child: ListTile(
         dense: true,
+        onTap: onTap, // 💡 클릭 이벤트 연동
         title: Text(name, style: const TextStyle(fontSize: 15)),
-        trailing: Text(
-          '${_currencyFormatter.format(amount)} 원',
-          style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w600),
+        trailing: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text(
+              '${_currencyFormatter.format(amount)} 원',
+              style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w600),
+            ),
+            const SizedBox(width: 4),
+            const Icon(Icons.chevron_right, size: 18, color: Colors.grey),
+          ],
         ),
       ),
     );
   }
 
-  // 파이 차트 생성 함수 (fl_chart)
   Widget _buildPieChart(Map<String, int> data, Color baseColor) {
     final total = data.values.fold(0, (sum, item) => sum + item);
     if (total == 0) return const Center(child: Text('금액이 0원입니다.'));
