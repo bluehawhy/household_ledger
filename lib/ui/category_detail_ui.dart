@@ -77,17 +77,25 @@ class CategoryDetailUI extends StatelessWidget {
                       final item = items[index];
 
                       // Google Sheet 데이터의 날짜/메모/결제수단/금액 파싱 (필드명은 실제 모델에 맞춰 자동 대응)
-                      final String dateStr = item.date ?? '';
-                      final String memo = (item.memo != null && item.memo.isNotEmpty)
-                          ? item.memo
-                          : '메모 없음';
+                      final DateFormat dateFormatter = DateFormat('yyyy-MM-dd');
+                      // 2. item.date의 타입에 따른 안전한 처리
+                      final String dateStr = () {
+                        if (item.date == null) return '';
+                        if (item.date is DateTime) {
+                          return dateFormatter.format(item.date); // DateTime 타입인 경우 포맷팅
+                        }
+                        return item.date.toString(); // 이미 String이거나 다른 타입인 경우
+                      }();
+                      final String description = (item.description != null && item.description.isNotEmpty)
+                          ? item.description
+                          : '설명 없음';
                       final String? payMethod = item.payMethod;
                       final int amount = (item.amount ?? 0).toInt();
 
                       return ListTile(
                         contentPadding: const EdgeInsets.symmetric(vertical: 8, horizontal: 4),
                         title: Text(
-                          memo,
+                          description,
                           style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
                         ),
                         subtitle: Padding(

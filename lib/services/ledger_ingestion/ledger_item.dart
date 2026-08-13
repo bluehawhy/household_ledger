@@ -15,17 +15,19 @@ class LedgerItem {
   final DateTime date; // 입력 날짜
   final TransactionType type; // 수입 or 지출
   final String? payMethod; // 지출 수단
+  String? category; // 분류
   final String description; // 내용
   final int amount; // 금액
-  String? category; // 분류
+
 
   LedgerItem({
     required this.date,
     required this.type,
+    this.category,
     required this.description,
     required this.amount,
     this.payMethod,
-    this.category,
+
   });
 
   /// 🚀 [추가] YYYY-MM-DD 형식의 날짜 문자열 반환 게터
@@ -41,10 +43,11 @@ class LedgerItem {
     return LedgerItem(
       date: map['date'] as DateTime? ?? DateTime.now(),
       type: map['type'] as TransactionType? ?? TransactionType.expense,
+      category: map['category'] as String? ?? '미입력',
       payMethod: map['payMethod'] as String?,
       description: map['description'] as String? ?? '미지정 내역',
       amount: map['amount'] as int? ?? 0,
-      category: map['category'] as String? ?? '미입력',
+
     );
   }
 }
