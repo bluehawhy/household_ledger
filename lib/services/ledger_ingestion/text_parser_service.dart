@@ -1,6 +1,8 @@
 import 'dart:convert';
 import 'package:household_ledger/services/ledger_ingestion/ledger_item.dart';
 import 'package:household_ledger/services/utils/asset_loader.dart';
+import 'package:household_ledger/services/utils/app_logger.dart';
+
 
 /// JSON 설정 기반 무시 대상 관리 클래스
 class TransactionParserConfig {
@@ -87,9 +89,9 @@ class TextParserService {
     try {
       final binJsonString = await JsonAssetManager.loadJson('assets/card_bin_data.json');
       _binData = jsonDecode(binJsonString) as Map<String, dynamic>;
-      print("✅ [TextParserService] BIN 데이터 로드 완료 (${_binData.length}개)");
+      AppLogger.i("✅ [TextParserService] BIN 데이터 로드 완료 (${_binData.length}개)");
     } catch (e) {
-      print("⚠️ [TextParserService] BIN 데이터 로드 실패: $e");
+      AppLogger.i("⚠️ [TextParserService] BIN 데이터 로드 실패: $e");
     }
 
     try {
@@ -131,9 +133,9 @@ class TextParserService {
       //  _payMethods = map.map((k, v) => MapEntry(k, List<String>.from(v)));
       //}
 
-      print("✅ [TextParserService] '$filePath' 카테고리 매핑 로드 완료");
+      AppLogger.i("✅ [TextParserService] '$filePath' 카테고리 매핑 로드 완료");
     } catch (e) {
-      print("⚠️ [TextParserService] '$filePath' 로드 실패: $e");
+      AppLogger.i("⚠️ [TextParserService] '$filePath' 로드 실패: $e");
     }
   }
 
@@ -143,7 +145,7 @@ class TextParserService {
 
     // 1단계: 원본(rawInput) 상태에서 입력 데이터 타입부터 먼저 감지
     final inputType = _detectInputType(rawInput);
-    print("🔹 감지된 입력 타입: $inputType");
+    AppLogger.i("🔹 감지된 입력 타입: $inputType");
 
     // 2단계: 타입별 파싱 분기
     switch (inputType) {
@@ -173,7 +175,7 @@ class TextParserService {
 
     // 💡 타입별 토큰화 적용!
     List<String> tokens = _tokenize(rawText, inputType);
-    print("🔹 토큰화된 입력 ($inputType): $tokens");
+    AppLogger.i("🔹 토큰화된 입력 ($inputType): $tokens");
 
     DateTime? date;
     int? amount;
@@ -289,7 +291,7 @@ class TextParserService {
     };
     
     // 💡 2. 결과 출력 (콘솔 확인용)
-    print("✅ [파싱 결과 Map]: $result");
+    AppLogger.i("✅ [파싱 결과 Map]: $result");
 
     // 💡 3. 반환
     return result;
@@ -419,9 +421,9 @@ class TextParserService {
         .where((s) => s.isNotEmpty)
         .toList();
 
-    print("🔹 [TXT 전용] 완성도 기반 분할 결과 (${resultLines.length}개):");
+    AppLogger.i("🔹 [TXT 전용] 완성도 기반 분할 결과 (${resultLines.length}개):");
     for (int idx = 0; idx < resultLines.length; idx++) {
-      print("   Line ${idx + 1}: \"${resultLines[idx]}\"");
+      AppLogger.i("   Line ${idx + 1}: \"${resultLines[idx]}\"");
     }
 
     return resultLines;

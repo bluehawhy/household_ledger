@@ -8,10 +8,11 @@ import 'package:intl/intl.dart';
 // 서비스 및 UI 클래스 임포트
 import 'package:household_ledger/services/auth/google_auth.dart';
 import 'package:household_ledger/services/google_drive/google_spreadsheet.dart';
+import 'package:household_ledger/services/ledger_ingestion/ledger_item.dart';
 
-import 'ledger_ingestion_ui.dart';
-import 'setting_ui.dart';
-import 'category_detail_ui.dart'; // 💡 CategoryDetailUI 임포트 추가
+import 'package:household_ledger/ui/ledger_ingestion_ui.dart';
+import 'package:household_ledger/ui/setting_ui.dart';
+import 'package:household_ledger/ui/category_detail_ui.dart';
 
 class OverviewPage extends StatefulWidget {
   final GoogleSignInAccount googleUser;
@@ -61,7 +62,7 @@ class _OverviewPageState extends State<OverviewPage> {
     super.dispose();
   }
 
-  /// 구글 시트에서 이번 달 데이터 불러오기 및 가공
+  /// 구글 시트에서 이번 달 통합 데이터 불러오기 및 가공
   Future<void> _loadMonthlyData() async {
     setState(() {
       _isLoading = true;
@@ -75,34 +76,35 @@ class _OverviewPageState extends State<OverviewPage> {
 
       final AuthClient client = await _authManager.getClient();
 
-      final results = await Future.wait([
-        _sheetService.getMonthlyExpenses(
-          client: client,
-          year: targetYear,
-          month: targetMonth,
-        ),
-        _sheetService.getMonthlyIncomes(
-          client: client,
-          year: targetYear,
-          month: targetMonth,
-        ),
-      ]);
+      // 1. 통합 시트 데이터 1회 불러오기
+      final List<LedgerItem> totalItems = await _sheetService.getMonthlyLedger(
+        client: client,
+        year: targetYear,
+        month: targetMonth,
+      );
 
-      final expenses = results[0];
-      final incomes = results[1];
+      // 2. TransactionType에 따라 지출 / 수입 리스트로 분리
+      final List<LedgerItem> expenses = [];
+      final List<LedgerItem> incomes = [];
 
-      // 1. 지출 데이터 집계
+      for (final item in totalItems) {
+        if (item.type == TransactionType.expense) {
+          expenses.add(item);
+        } else if (item.type == TransactionType.income) {
+          incomes.add(item);
+        }
+      }
+
+      // 3. 지출 데이터 집계 (기존 변수명 및 로직 그대로 유지)
       int totalExp = 0;
       final Map<String, int> expCatMap = {};
       final Map<String, int> expMethodMap = {};
 
       for (final item in expenses) {
-        final int amount = (item.amount ?? 0).toInt();
+        final int amount = item.amount;
         totalExp += amount;
 
-        final String category = (item.category != null && item.category!.isNotEmpty)
-            ? item.category!
-            : '미분류';
+        final String category = item.category.isNotEmpty ? item.category : '미분류';
         expCatMap[category] = (expCatMap[category] ?? 0) + amount;
 
         if (item.payMethod != null && item.payMethod!.isNotEmpty) {
@@ -111,25 +113,23 @@ class _OverviewPageState extends State<OverviewPage> {
         }
       }
 
-      // 2. 수입 데이터 집계
+      // 4. 수입 데이터 집계 (기존 변수명 및 로직 그대로 유지)
       int totalInc = 0;
       final Map<String, int> incCatMap = {};
 
       for (final item in incomes) {
-        final int amount = (item.amount ?? 0).toInt();
+        final int amount = item.amount;
         totalInc += amount;
 
-        final String category = (item.category != null && item.category!.isNotEmpty)
-            ? item.category!
-            : '미분류';
+        final String category = item.category.isNotEmpty ? item.category : '미분류';
         incCatMap[category] = (incCatMap[category] ?? 0) + amount;
       }
 
-      // 3. 상태 업데이트 (원본 리스트도 함께 저장)
+      // 5. 기존 상태 변수(setState)에 그대로 반영
       if (mounted) {
         setState(() {
-          _rawExpenses = expenses; // 💡 원본 리스트 저장
-          _rawIncomes = incomes;   // 💡 원본 리스트 저장
+          _rawExpenses = expenses; // 💡 분리된 지출 원본 리스트
+          _rawIncomes = incomes;   // 💡 분리된 수입 원본 리스트
 
           _totalExpense = totalExp;
           _expenseCategories = expCatMap;
@@ -151,6 +151,9 @@ class _OverviewPageState extends State<OverviewPage> {
       }
     }
   }
+
+
+
 
   // 💡 선택한 카테고리 상세 페이지로 이동
   void _navigateToCategoryDetail({
@@ -216,6 +219,8 @@ class _OverviewPageState extends State<OverviewPage> {
       ),
     );
   }
+
+
 
   @override
   Widget build(BuildContext context) {

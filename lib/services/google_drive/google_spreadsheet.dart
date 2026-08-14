@@ -1,87 +1,11 @@
-//goole_spreadsheet.dart
+//google_spreadsheet.dart
 
-import 'dart:convert';
 import 'package:googleapis/drive/v3.dart' as drive;
 import 'package:googleapis/sheets/v4.dart' as sheets;
 import 'package:googleapis_auth/googleapis_auth.dart';
-import 'package:household_ledger/services/utils/asset_loader.dart';
 import 'package:household_ledger/services/ledger_ingestion/ledger_item.dart';
+import 'package:household_ledger/services/utils/app_logger.dart';
 
-
-// ============================================================================
-// JSON 기반 카테고리 자동 매퍼
-// ============================================================================
-class CategoryMapper {
-  // 카테고리명 -> 키워드 리스트 매핑
-  Map<String, List<String>> incomeCategories = {};
-  Map<String, List<String>> expenseCategories = {};
-
-  bool _isLoaded = false;
-  bool get isLoaded => _isLoaded;
-
-  Future<void> loadCategoryJson([String filePath = 'assets/ledger_ingestion_info.json']) async {
-    try {
-      final jsonString = await JsonAssetManager.loadJson(filePath);
-      final Map<String, dynamic> data = jsonDecode(jsonString);
-
-      // 💡 단일 리스트 or 중첩 Map 구조에 관계없이 모든 키워드를 Flatten(평탄화) 추출하는 헬퍼 함수
-      Map<String, List<String>> parseCategoryStructure(dynamic rawData) {
-        final Map<String, List<String>> resultMap = {};
-
-        if (rawData is! Map<String, dynamic>) return resultMap;
-
-        rawData.forEach((key, value) {
-          if (value is List) {
-            // 1단계 구조인 경우: "급여": ["월급", "급여"]
-            resultMap[key] = value.map((e) => e.toString()).toList();
-          } else if (value is Map<String, dynamic>) {
-            // 2단계 중첩 구조인 경우: "식비": { "식당/외식": ["점심", "식당"] }
-            value.forEach((subKey, subValue) {
-              if (subValue is List) {
-                resultMap[subKey] = subValue.map((e) => e.toString()).toList();
-              }
-            });
-          }
-        });
-
-        return resultMap;
-      }
-
-      // 수입 분류 파싱
-      if (data.containsKey("수입 분류")) {
-        incomeCategories = parseCategoryStructure(data["수입 분류"]);
-      }
-
-      // 지출 분류 파싱 (2단계 중첩 Map 대응)
-      if (data.containsKey("지출 분류")) {
-        expenseCategories = parseCategoryStructure(data["지출 분류"]);
-      }
-
-      _isLoaded = true;
-      print("✅ [CategoryMapper] 카테고리 JSON 데이터 로드 완료! (수입: ${incomeCategories.length}개, 지출: ${expenseCategories.length}개 항목)");
-    } catch (e) {
-      print("⚠️ [CategoryMapper] JSON 로드/파싱 에러 ($filePath): $e");
-      _isLoaded = true; // 실패 시에도 반복 로드 시도를 막기 위해 flag 처리
-    }
-  }
-
-  /// 적합한 카테고리를 찾아 반환 (예: "맥도날드" 입력 시 -> "식당/외식" 반환)
-  String getCategory(String description, {required bool isIncome}) {
-    final categories = isIncome ? incomeCategories : expenseCategories;
-
-    for (var entry in categories.entries) {
-      final categoryName = entry.key; // 소분류 이름 (예: "식당/외식", "카페/디저트")
-      final keywords = entry.value;    // 키워드 리스트 (예: ["맥도날드", "버거킹", ...])
-
-      for (var keyword in keywords) {
-        if (keyword.isNotEmpty && description.contains(keyword)) {
-          return categoryName;
-        }
-      }
-    }
-    return "미분류";
-  }
-}
 
 // ============================================================================
 /// 가계부 구글 드라이브 폴더 및 연도별 시트 ID를 관리/캐싱하는 클래스
@@ -116,10 +40,10 @@ class LedgerCacheManager {
         }
       }
     }
-    print("✅ [LedgerCacheManager] 연도별 시트 캐시 완료: $_yearToSpreadsheetIdMap");
+    AppLogger.i("✅ [LedgerCacheManager] 연도별 시트 캐시 완료: $_yearToSpreadsheetIdMap");
   }
 
-  /// 특정 연도의 시트 ID 가져오기 (캐시에 존재하면 API 호출 없이 0초 반환)
+  /// 특정 연도의 시트 ID 가져오기 (캐시에 존재하면 API 호출 없이 반환)
   String? getSpreadsheetId(int year) {
     return _yearToSpreadsheetIdMap[year];
   }
@@ -137,17 +61,17 @@ class LedgerCacheManager {
 
   /// 폴더 생성/조회 헬퍼
   Future<String> _getOrCreateFolder(drive.DriveApi driveApi, String folderName) async {
-    print("\n📁 '가계부' 폴더 확인 중...");
+    AppLogger.i("📁 '가계부' 폴더 확인 중...");
     final query = "name = '$folderName' and mimeType = 'application/vnd.google-apps.folder' and trashed = false";
     final result = await driveApi.files.list(q: query);
 
     if (result.files != null && result.files!.isNotEmpty) {
       final id = result.files!.first.id!;
-      print("  └ 💡 기존 폴더 사용 (ID: $id)");
+      AppLogger.i("  └ 💡 기존 폴더 사용 (ID: $id)");
       return id;
     }
 
-    print("  └ ➕ '$folderName' 폴더가 없어 새로 생성합니다...");
+    AppLogger.i("  └ ➕ '$folderName' 폴더가 없어 새로 생성합니다...");
     final createdFolder = await driveApi.files.create(
       drive.File()
         ..name = folderName
@@ -164,11 +88,26 @@ class LedgerCacheManager {
 }
 
 // ============================================================================
-// 3. 📊 가계부 구글 드라이브 및 스프레드시트 통합 관리 서비스 클래스
+// 📊 가계부 구글 드라이브 및 스프레드시트 통합 관리 서비스 클래스
 // ============================================================================
+
 class HouseholdSheetService {
   final CategoryMapper categoryMapper = CategoryMapper();
-  final LedgerCacheManager cacheManager = LedgerCacheManager(); // 💡 캐시 매니저 도입
+  final LedgerCacheManager cacheManager = LedgerCacheManager();
+
+  // 💡 [추가] 연도별 시트 생성/조회 비동기 작업을 기록하는 Map (락 역할)
+  final Map<int, Future<String>> _spreadsheetInitFutures = {};
+
+  /// 통합 헤더 정의
+  static const List<String> defaultHeader = [
+    "날짜",
+    "거래유형",
+    "거래 수단",
+    "분류",
+    "내용",
+    "금액",
+    "메모"
+  ];
 
   /// 서비스 초기화 시 JSON 설정 파일 및 구글 드라이브 시트 목록 사전 스캔
   Future<void> init(
@@ -184,20 +123,40 @@ class HouseholdSheetService {
   // 🟢 [기능 A] 파일 및 시트 구조 생성 및 ID 관리
   // ==========================================================================
 
-  /// [기존 호환용] 현재 연도 기준 가계부 설정
+  /// 현재 연도 기준 가계부 설정
   Future<String> setupLedgerSpreadsheet(AuthClient client) async {
     return await setupLedgerSpreadsheetForYear(client, DateTime.now().year);
   }
 
-  /// [확장용] 특정 연도 가계부 설정 (캐시 체크 적용)
+  /// 특정 연도 가계부 설정 (캐시 체크 및 동시성 락 적용)
   Future<String> setupLedgerSpreadsheetForYear(AuthClient client, int year) async {
-    // 1. 캐시에 존재하면 API 호출 없이 0.001초만에 즉시 반환
+    // 1. 이미 캐시에 저장된 ID가 있으면 즉시 반환
     final cachedId = cacheManager.getSpreadsheetId(year);
     if (cachedId != null) {
       return cachedId;
     }
 
-    // 2. 카테고리 로드 상태 안전장치
+    // 2. 💡 이미 해당 연도의 시트 확인/생성이 진행 중이라면 기존 Future가 완료될 때까지 대기
+    if (_spreadsheetInitFutures.containsKey(year)) {
+      AppLogger.i("💡 [$year년] 시트 확인/생성 작업이 이미 진행 중입니다. 완료를 기다립니다.");
+      return await _spreadsheetInitFutures[year]!;
+    }
+
+    // 3. 진행 중인 Future 생성 및 등록
+    final initFuture = _setupLedgerSpreadsheetForYearInternal(client, year);
+    _spreadsheetInitFutures[year] = initFuture;
+
+    try {
+      final spreadsheetId = await initFuture;
+      return spreadsheetId;
+    } finally {
+      // 작업 완료 후 Future Map에서 제거
+      _spreadsheetInitFutures.remove(year);
+    }
+  }
+
+  // 💡 기존의 setupLedgerSpreadsheetForYear 로직을 별도 내부 메서드로 분리
+  Future<String> _setupLedgerSpreadsheetForYearInternal(AuthClient client, int year) async {
     if (!categoryMapper.isLoaded) {
       await categoryMapper.loadCategoryJson();
     }
@@ -208,7 +167,6 @@ class HouseholdSheetService {
     final folderId = await cacheManager.getFolderId(driveApi);
     final fileName = "가계부_$year";
 
-    // 3. 신규 시트 생성 또는 구글 드라이브 내 기존 파일 탐색
     final spreadsheetId = await _getOrCreateSpreadsheet(
       driveApi,
       sheetsApi,
@@ -216,9 +174,7 @@ class HouseholdSheetService {
       fileName,
     );
 
-    // 4. 캐시 매니저에 ID 저장
     cacheManager.registerSpreadsheetId(year, spreadsheetId);
-
     return spreadsheetId;
   }
 
@@ -228,7 +184,7 @@ class HouseholdSheetService {
     String folderId,
     String fileName,
   ) async {
-    print("\n📊 2. '$fileName' 파일 확인 중...");
+    AppLogger.i("📊 2. '$fileName' 파일 확인 중...");
 
     final query =
         "name = '$fileName' and '$folderId' in parents and mimeType = 'application/vnd.google-apps.spreadsheet' and trashed = false";
@@ -236,11 +192,11 @@ class HouseholdSheetService {
 
     if (result.files != null && result.files!.isNotEmpty) {
       final id = result.files!.first.id!;
-      print("  └ 💡 기존 파일이 이미 존재합니다. (ID: $id)");
+      AppLogger.i("  └ 💡 기존 파일이 이미 존재합니다. (ID: $id)");
       return id;
     }
 
-    print("  └ ➕ '$fileName' 파일이 없어 새 시트를 생성합니다...");
+    AppLogger.i("  └ ➕ '$fileName' 파일이 없어 새 시트를 생성합니다...");
 
     final List<sheets.Sheet> sheetsList = [
       sheets.Sheet(properties: sheets.SheetProperties(title: 'Overview')),
@@ -266,7 +222,7 @@ class HouseholdSheetService {
       addParents: folderId,
     );
 
-    print("  └ 🎨 Overview 안내표, 월별 수식 및 헤더를 입력하는 중...");
+    AppLogger.i("  └ 🎨 Overview 안내표, 월별 수식 및 통합 헤더를 입력하는 중...");
     await _initializeAllSheets(sheetsApi, spreadsheetId);
 
     return spreadsheetId;
@@ -302,7 +258,7 @@ class HouseholdSheetService {
       ),
     );
 
-    // 2. 수입 종합 통계표 생성
+    // 2. 수입 종합 통계표 생성 (통합 구조 적용: B열=거래유형, D열=분류, F열=금액)
     final monthsHeader = [
       "수입분류", "1월", "2월", "3월", "4월", "5월", "6월",
       "7월", "8월", "9월", "10월", "11월", "12월", "연간 합계"
@@ -318,7 +274,8 @@ class HouseholdSheetService {
       final rowNum = incomeStartRow + 1 + i;
       List<String> row = [category];
       for (int m = 1; m <= 12; m++) {
-        row.add("=SUMIF('$m월'!\$B:\$B, \$A$rowNum, '$m월'!\$D:\$D)");
+        // 거래유형이 "수입"이고 분류가 일치하는 행의 금액(F열) 합계
+        row.add("=SUMIFS('$m월'!\$F:\$F, '$m월'!\$B:\$B, \"수입\", '$m월'!\$D:\$D, \$A$rowNum)");
       }
       row.add("=SUM(B$rowNum:M$rowNum)");
       incomeTable.add(row);
@@ -343,7 +300,7 @@ class HouseholdSheetService {
       ),
     );
 
-    // 3. 지출 종합 통계표 생성
+    // 3. 지출 종합 통계표 생성 (통합 구조 적용: B열=거래유형, D열=분류, F열=금액)
     final expenseList = categoryMapper.expenseCategories.keys.toList();
     final expenseMonthsHeader = [
       "지출분류", "1월", "2월", "3월", "4월", "5월", "6월",
@@ -358,7 +315,8 @@ class HouseholdSheetService {
       final rowNum = expenseStartRow + 1 + i;
       List<String> row = [category];
       for (int m = 1; m <= 12; m++) {
-        row.add("=SUMIF('$m월'!\$H:\$H, \$A$rowNum, '$m월'!\$J:\$J)");
+        // 거래유형이 "지출"이고 분류가 일치하는 행의 금액(F열) 합계
+        row.add("=SUMIFS('$m월'!\$F:\$F, '$m월'!\$B:\$B, \"지출\", '$m월'!\$D:\$D, \$A$rowNum)");
       }
       row.add("=SUM(B$rowNum:M$rowNum)");
       expenseTable.add(row);
@@ -383,18 +341,13 @@ class HouseholdSheetService {
       ),
     );
 
-    // 4. 1~12월 시트 기본 헤더 생성
+    // 4. 1~12월 시트 기본 통합 헤더 생성 (A1:G1)
     for (int month = 1; month <= 12; month++) {
       final sheetName = '$month월';
       data.add(
         sheets.ValueRange(
-          range: "'$sheetName'!A1:J1",
-          values: [
-            [
-              "날짜", "수입 분류", "내용", "금액", "",
-              "날짜", "지출 수단", "지출 분류", "내용", "금액"
-            ]
-          ],
+          range: "'$sheetName'!A1:G1",
+          values: [defaultHeader],
         ),
       );
     }
@@ -405,11 +358,11 @@ class HouseholdSheetService {
     );
 
     await sheetsApi.spreadsheets.values.batchUpdate(request, spreadsheetId);
-    print("  └ ✅ Overview 통계표 및 범례 작성 완료!");
+    AppLogger.i("  └ ✅ Overview 통계표 및 통합 헤더 작성 완료!");
   }
 
   // ==========================================================================
-  // 🔵 [기능 B] 수입 / 지출 내역 입력 로직
+  // 🔵 [기능 B] 수입 / 지출 내역 단일 항목 입력 로직
   // ==========================================================================
 
   Future<void> addTransaction({
@@ -417,9 +370,8 @@ class HouseholdSheetService {
     required LedgerItem item,
     String? spreadsheetId,
   }) async {
-    // 💡 0원 이하 데이터 스킵 (item.amount 확인)
     if (item.amount <= 0) {
-      print("⚠️ [0원 패스] [${item.formattedDate}] '${item.description}' 금액이 0원이므로 저장하지 않습니다.");
+      AppLogger.i("⚠️ [0원 패스] [${item.formattedDate}] '${item.description}' 금액이 0원이므로 저장하지 않습니다.");
       return;
     }
     if (!categoryMapper.isLoaded) {
@@ -432,18 +384,18 @@ class HouseholdSheetService {
         ? spreadsheetId
         : await setupLedgerSpreadsheetForYear(client, item.date.year);
 
-    if (item.category == null || item.category!.isEmpty) {
-      item.category = categoryMapper.getCategory(
+    item = item.copyWith(
+      category: categoryMapper.getCategory(
         item.description,
         isIncome: item.type == TransactionType.income,
-      );
-    }
+      ),
+    );
 
     final monthSheetName = '${item.date.month}월';
 
     await _ensureMonthSheetExists(sheetsApi, targetSpreadsheetId, monthSheetName);
 
-    final range = "'$monthSheetName'!A1:J1000";
+    final range = "'$monthSheetName'!A1:G1000";
     List<List<dynamic>> existingRows = [];
 
     try {
@@ -453,30 +405,25 @@ class HouseholdSheetService {
       );
       existingRows = response.values ?? [];
     } on sheets.DetailedApiRequestError catch (e) {
-      print("⚠️ [$monthSheetName] 시트 읽기 실패 (${e.status}): ${e.message}");
+      AppLogger.i("⚠️ [$monthSheetName] 시트 읽기 실패 (${e.status}): ${e.message}");
       return;
     } catch (e) {
-      print("⚠️ [$monthSheetName] 시트 읽기 중 예외 발생: $e");
+      AppLogger.i("⚠️ [$monthSheetName] 시트 읽기 중 예외 발생: $e");
       return;
     }
 
     if (existingRows.isEmpty) {
-      final defaultHeader = [
-        "날짜", "수입 분류", "내용", "금액", "", "날짜", "지출 수단", "지출 분류", "내용", "금액"
-      ];
-
       await sheetsApi.spreadsheets.values.update(
-        sheets.ValueRange(range: "'$monthSheetName'!A1:J1", values: [defaultHeader]),
+        sheets.ValueRange(range: "'$monthSheetName'!A1:G1", values: [defaultHeader]),
         targetSpreadsheetId,
-        "'$monthSheetName'!A1:J1",
+        "'$monthSheetName'!A1:G1",
         valueInputOption: "USER_ENTERED",
       );
-
       existingRows = [defaultHeader];
     }
 
     if (_checkDuplicate(existingRows, item)) {
-      print("⚠️ [중복 패스] [${item.formattedDate}] '${item.description}' (${item.amount}원) 내역이 이미 존재합니다.");
+      AppLogger.i("⚠️ [중복 패스] [${item.formattedDate}] '${item.description}' (${item.amount}원) 내역이 이미 존재합니다.");
       return;
     }
 
@@ -489,21 +436,18 @@ class HouseholdSheetService {
     );
   }
 
-
   // ==========================================================================
   // 🟡 [기능 B-2] 수입 / 지출 내역 수정(업데이트) 로직
   // ==========================================================================
 
-  /// 기존 내역(oldItem)을 찾아서 새 내역(newItem)으로 업데이트합니다.
   Future<bool> updateTransaction({
     required AuthClient client,
     required LedgerItem oldItem,
     required LedgerItem newItem,
     String? spreadsheetId,
   }) async {
-    // 1. 0원 이하 체크
     if (newItem.amount <= 0) {
-      print("⚠️ [0원 패스] 수정하려는 금액이 0원 이하입니다.");
+      AppLogger.i("⚠️ [0원 패스] 수정하려는 금액이 0원 이하입니다.");
       return false;
     }
 
@@ -513,24 +457,21 @@ class HouseholdSheetService {
 
     final sheetsApi = sheets.SheetsApi(client);
 
-    // 2. 스프레드시트 ID 확인 (기존 연도 기준)
     final targetSpreadsheetId = (spreadsheetId != null && spreadsheetId.isNotEmpty)
         ? spreadsheetId
         : await setupLedgerSpreadsheetForYear(client, oldItem.date.year);
 
-    // 새 카테고리 자동 설정
-    if (newItem.category == null || newItem.category!.isEmpty) {
-      newItem.category = categoryMapper.getCategory(
+    newItem = newItem.copyWith(
+      category: categoryMapper.getCategory(
         newItem.description,
         isIncome: newItem.type == TransactionType.income,
-      );
-    }
+      ),
+    );
 
     final monthSheetName = '${oldItem.date.month}월';
-    final range = "'$monthSheetName'!A1:J1000";
+    final range = "'$monthSheetName'!A1:G1000";
 
     try {
-      // 3. 시트 전체 행 읽어오기
       final response = await sheetsApi.spreadsheets.values.get(
         targetSpreadsheetId,
         range,
@@ -538,64 +479,48 @@ class HouseholdSheetService {
 
       final List<List<dynamic>> rows = response.values ?? [];
       if (rows.isEmpty) {
-        print("⚠️ [$monthSheetName] 시트에 데이터가 존재하지 않습니다.");
+        AppLogger.i("⚠️ [$monthSheetName] 시트에 데이터가 존재하지 않습니다.");
         return false;
       }
 
-      final isIncome = oldItem.type == TransactionType.income;
+      int targetRowIndex = -1;
 
-      // 컬럼 인덱스 정의 (A~D: 수입, F~J: 지출)
-      final dateIdx = isIncome ? 0 : 5;
-      final descIdx = isIncome ? 2 : 8;
-      final amountIdx = isIncome ? 3 : 9;
-
-      int targetRowIndex = -1; // 1-based Row Index for Google Sheets
-
-      // 4. oldItem과 일치하는 행 번호 찾기 (헤더 행 0번은 제외하고 1번부터 순회)
+      // 일치하는 기존 행 탐색 (A: 날짜, E: 내용, F: 금액)
       for (int i = 1; i < rows.length; i++) {
         final row = rows[i];
-        if (row.length > amountIdx) {
-          final existingDate = row[dateIdx].toString().trim();
-          final existingDesc = row[descIdx].toString().trim();
-          final existingAmount = row[amountIdx].toString().replaceAll(',', '').trim();
+        if (row.length > 5) {
+          final existingDate = row[0].toString().trim();
+          final existingDesc = row[4].toString().trim();
+          final existingAmount = row[5].toString().replaceAll(',', '').trim();
 
           if (existingDate == oldItem.formattedDate.trim() &&
               existingDesc == oldItem.description.trim() &&
               existingAmount == oldItem.amount.toString().trim()) {
-            targetRowIndex = i + 1; // Google Sheets의 실제 행 번호 (1-based)
+            targetRowIndex = i + 1;
             break;
           }
         }
       }
 
       if (targetRowIndex == -1) {
-        print("⚠️ [$monthSheetName] 수정할 기존 내역을 시트에서 찾을 수 없습니다: "
+        AppLogger.i("⚠️ [$monthSheetName] 수정할 기존 내역을 시트에서 찾을 수 없습니다: "
             "[${oldItem.formattedDate}] ${oldItem.description} (${oldItem.amount}원)");
         return false;
       }
 
-      // 5. 업데이트할 범위 및 데이터 구성
-      final List<Object?> rowData = isIncome
-          ? [
-              newItem.formattedDate,
-              newItem.category,
-              newItem.description,
-              newItem.amount,
-            ]
-          : [
-              newItem.formattedDate,
-              newItem.payMethod ?? "현금",
-              newItem.category,
-              newItem.description,
-              newItem.amount,
-            ];
+      final isIncome = newItem.type == TransactionType.income;
+      final List<Object?> rowData = [
+        newItem.formattedDate,
+        isIncome ? "수입" : "지출",
+        newItem.payMethod ?? "-",
+        newItem.category ?? "미분류",
+        newItem.description,
+        newItem.amount,
+        newItem.memo ?? "",
+      ];
 
-      // 수입: A~D열 / 지출: F~J열
-      final startCol = isIncome ? 'A' : 'F';
-      final endCol = isIncome ? 'D' : 'J';
-      final targetRange = "'$monthSheetName'!$startCol$targetRowIndex:$endCol$targetRowIndex";
+      final targetRange = "'$monthSheetName'!A$targetRowIndex:G$targetRowIndex";
 
-      // 6. 해당 위치에 덮어쓰기 (Update)
       final valueRange = sheets.ValueRange(
         range: targetRange,
         values: [rowData],
@@ -608,18 +533,18 @@ class HouseholdSheetService {
         valueInputOption: "USER_ENTERED",
       );
 
-      print("✅ [$monthSheetName] 내역 수정 완료! (행: $targetRowIndex, 범위: $targetRange)");
+      AppLogger.i("✅ [$monthSheetName] 내역 수정 완료! (행: $targetRowIndex, 범위: $targetRange)");
       return true;
     } on sheets.DetailedApiRequestError catch (e) {
-      print("❌ [$monthSheetName] 시트 업데이트 API 에러 (${e.status}): ${e.message}");
+      AppLogger.i("❌ [$monthSheetName] 시트 업데이트 API 에러 (${e.status}): ${e.message}");
       return false;
     } catch (e) {
-      print("❌ [$monthSheetName] 내역 수정 중 예외 발생: $e");
+      AppLogger.i("❌ [$monthSheetName] 내역 수정 중 예외 발생: $e");
       return false;
     }
   }
 
-  /// 월별 다중 항목 배치 전송 (단 1회의 API 호출로 처리)
+  /// 월별 다중 항목 배치 전송
   Future<bool> appendTransactionBatch(
     sheets.SheetsApi sheetsApi,
     String spreadsheetId,
@@ -629,7 +554,7 @@ class HouseholdSheetService {
     if (items.isEmpty) return true;
 
     try {
-      final range = "'$sheetName'!A1:J1000";
+      final range = "'$sheetName'!A1:G1000";
       final response = await sheetsApi.spreadsheets.values.get(
         spreadsheetId,
         range,
@@ -637,89 +562,47 @@ class HouseholdSheetService {
       final List<List<dynamic>> existingRows = response.values ?? [];
 
       if (existingRows.isEmpty) {
-        final defaultHeader = [
-          "날짜", "수입 분류", "내용", "금액", "", "날짜", "지출 수단", "지출 분류", "내용", "금액"
-        ];
         await sheetsApi.spreadsheets.values.update(
           sheets.ValueRange(values: [defaultHeader]),
           spreadsheetId,
-          "'$sheetName'!A1:J1",
+          "'$sheetName'!A1:G1",
           valueInputOption: "USER_ENTERED",
         );
         existingRows.add(defaultHeader);
       }
 
-      int lastIncomeRowIdx = 0;
-      int lastExpenseRowIdx = 0;
-
-      for (int i = 1; i < existingRows.length; i++) {
-        final row = existingRows[i];
-        if (row.isNotEmpty && row[0].toString().trim().isNotEmpty) {
-          lastIncomeRowIdx = i;
-        }
-        if (row.length > 5 && row[5].toString().trim().isNotEmpty) {
-          lastExpenseRowIdx = i;
-        }
-      }
-
-      final List<List<Object?>> incomeRows = [];
-      final List<List<Object?>> expenseRows = [];
+      final List<List<Object?>> newRows = [];
 
       for (final item in items) {
-        // 💡 0원 이하 항목은 저장하지 않고 스킵
         if (item.amount <= 0) continue;
-        final formattedDate = item.formattedDate;
-        final incomeKeywords = ["수입", "입금", "월급", "환불"];
-        final String categoryStr = item.category ?? '';
-        final bool isIncome = item.type == TransactionType.income ||
-            incomeKeywords.any((keyword) => categoryStr.contains(keyword));
 
-        if (isIncome) {
-          incomeRows.add([
-            formattedDate,
-            item.category ?? '주수입',
-            item.description,
-            item.amount,
-          ]);
-        } else {
-          expenseRows.add([
-            formattedDate,
-            item.payMethod ?? '카드',
-            item.category ?? '미분류',
-            item.description,
-            item.amount,
-          ]);
-        }
+        if (_checkDuplicate(existingRows, item)) continue;
+
+        final isIncome = item.type == TransactionType.income;
+        newRows.add([
+          item.formattedDate,
+          isIncome ? "수입" : "지출",
+          item.payMethod ?? "-",
+          item.category ?? (isIncome ? '주수입' : '미분류'),
+          item.description,
+          item.amount,
+          item.memo ?? "",
+        ]);
       }
 
-      final List<sheets.ValueRange> valueRangesToUpdate = [];
+      if (newRows.isNotEmpty) {
+        final startRow = existingRows.length + 1;
+        final endRow = startRow + newRows.length - 1;
+        final targetRange = "'$sheetName'!A$startRow:G$endRow";
 
-      if (incomeRows.isNotEmpty) {
-        final startRow = lastIncomeRowIdx + 2;
-        final endRow = startRow + incomeRows.length - 1;
-        valueRangesToUpdate.add(
-          sheets.ValueRange(
-            range: "'$sheetName'!A$startRow:D$endRow",
-            values: incomeRows,
-          ),
-        );
-      }
-
-      if (expenseRows.isNotEmpty) {
-        final startRow = lastExpenseRowIdx + 2;
-        final endRow = startRow + expenseRows.length - 1;
-        valueRangesToUpdate.add(
-          sheets.ValueRange(
-            range: "'$sheetName'!F$startRow:J$endRow",
-            values: expenseRows,
-          ),
-        );
-      }
-
-      if (valueRangesToUpdate.isNotEmpty) {
         final batchRequest = sheets.BatchUpdateValuesRequest(
           valueInputOption: "USER_ENTERED",
-          data: valueRangesToUpdate,
+          data: [
+            sheets.ValueRange(
+              range: targetRange,
+              values: newRows,
+            )
+          ],
         );
 
         await sheetsApi.spreadsheets.values.batchUpdate(
@@ -728,10 +611,10 @@ class HouseholdSheetService {
         );
       }
 
-      print("✅ [$sheetName] 배치 입력 완료 (수입: ${incomeRows.length}건, 지출: ${expenseRows.length}건)");
+      AppLogger.i("✅ [$sheetName] 통합 배치 입력 완료 (총 ${newRows.length}건)");
       return true;
     } catch (e) {
-      print("❌ [appendTransactionBatch] ($sheetName) 배치 전송 실패: $e");
+      AppLogger.i("❌ [appendTransactionBatch] ($sheetName) 배치 전송 실패: $e");
       return false;
     }
   }
@@ -748,7 +631,7 @@ class HouseholdSheetService {
         false;
 
     if (!sheetExists) {
-      print("➕ '$sheetName' 시트가 존재하지 않아 새로 생성합니다...");
+      AppLogger.i("➕ '$sheetName' 시트가 존재하지 않아 새로 생성합니다...");
 
       final addSheetRequest = sheets.Request(
         addSheet: sheets.AddSheetRequest(
@@ -762,19 +645,14 @@ class HouseholdSheetService {
       );
 
       final headerValueRange = sheets.ValueRange(
-        range: "'$sheetName'!A1:J1",
-        values: [
-          [
-            "날짜", "수입 분류", "내용", "금액", "",
-            "날짜", "지출 수단", "지출 분류", "내용", "금액"
-          ]
-        ],
+        range: "'$sheetName'!A1:G1",
+        values: [defaultHeader],
       );
 
       await sheetsApi.spreadsheets.values.update(
         headerValueRange,
         spreadsheetId,
-        "'$sheetName'!A1:J1",
+        "'$sheetName'!A1:G1",
         valueInputOption: "USER_ENTERED",
       );
     }
@@ -783,22 +661,16 @@ class HouseholdSheetService {
   bool _checkDuplicate(List<List<dynamic>> rows, LedgerItem item) {
     if (rows.length <= 1) return false;
 
-    final isIncome = item.type == TransactionType.income;
-    final dateIdx = isIncome ? 0 : 5;
-    final descIdx = isIncome ? 2 : 8;
-    final amountIdx = isIncome ? 3 : 9;
-
     for (int i = 1; i < rows.length; i++) {
       final row = rows[i];
+      if (row.length > 5) {
+        final existingDate = row[0].toString().trim();
+        final existingDesc = row[4].toString().trim();
+        final existingAmount = row[5].toString().replaceAll(',', '').trim();
 
-      if (row.length > amountIdx) {
-        final existingDate = row[dateIdx].toString().trim();
-        final existingDesc = row[descIdx].toString().trim();
-        final existingAmount = row[amountIdx].toString().replaceAll(',', '').trim();
-
-        if (existingDate == item.formattedDate &&
-            existingDesc == item.description &&
-            existingAmount == item.amount.toString()) {
+        if (existingDate == item.formattedDate.trim() &&
+            existingDesc == item.description.trim() &&
+            existingAmount == item.amount.toString().trim()) {
           return true;
         }
       }
@@ -813,92 +685,24 @@ class HouseholdSheetService {
     List<List<dynamic>> existingRows,
     LedgerItem item,
   ) async {
-      // 🎯 최하단 방어선: 0원 이하 데이터는 절대 시트에 쓰지 않음
     if (item.amount <= 0) {
-      print("⚠️ [0원 패스] [${item.formattedDate}] '${item.description}' 금액이 0원이므로 저장하지 않습니다.");
+      AppLogger.i("⚠️ [0원 패스] [${item.formattedDate}] '${item.description}' 금액이 0원이므로 저장하지 않습니다.");
       return false;
     }
-    if (existingRows.isEmpty) return false;
 
     final isIncome = item.type == TransactionType.income;
-    final headerRow = existingRows[0].map((e) => e.toString().trim()).toList();
+    final rowData = [
+      item.formattedDate,
+      isIncome ? "수입" : "지출",
+      item.payMethod ?? "-",
+      item.category ?? (isIncome ? "주수입" : "미분류"),
+      item.description,
+      item.amount,
+      item.memo ?? "",
+    ];
 
-    final dateIndices = <int>[];
-    final descIndices = <int>[];
-    final amountIndices = <int>[];
-
-    for (int i = 0; i < headerRow.length; i++) {
-      if (headerRow[i] == "날짜") dateIndices.add(i);
-      if (headerRow[i] == "내용") descIndices.add(i);
-      if (headerRow[i] == "금액") amountIndices.add(i);
-    }
-
-    final targetIndex = isIncome ? 0 : 1;
-
-    if (dateIndices.length <= targetIndex ||
-        descIndices.length <= targetIndex ||
-        amountIndices.length <= targetIndex) {
-      print("⚠️ [$sheetName] ${isIncome ? '첫 번째(수입)' : '두 번째(지출)'} 헤더를 찾을 수 없습니다.");
-      return false;
-    }
-
-    final dateIdx = dateIndices[targetIndex];
-    final descIdx = descIndices[targetIndex];
-    final amountIdx = amountIndices[targetIndex];
-
-    final rowData = isIncome
-        ? [
-            item.formattedDate,
-            item.category,
-            item.description,
-            item.amount,
-          ]
-        : [
-            item.formattedDate,
-            item.payMethod ?? "현금",
-            item.category,
-            item.description,
-            item.amount,
-          ];
-
-    int lastFilledRowIndex = 0;
-
-    for (int i = 1; i < existingRows.length; i++) {
-      final row = existingRows[i];
-
-      if (row.length > dateIdx && row[dateIdx].toString().trim().isNotEmpty) {
-        lastFilledRowIndex = i;
-
-        if (row.length > descIdx && row.length > amountIdx) {
-          final existingDate = row[dateIdx].toString().trim();
-          final existingDesc = row[descIdx].toString().trim();
-          final existingAmount = row[amountIdx].toString().replaceAll(',', '').trim();
-
-          if (existingDate == item.formattedDate.trim() &&
-              existingDesc == item.description.trim() &&
-              existingAmount == item.amount.toString().trim()) {
-            print("⚠️ 중복 데이터 감지되어 스킵됨: [${item.formattedDate}] ${item.description} (${item.amount}원)");
-            return false;
-          }
-        }
-      }
-    }
-
-    final targetRow = (lastFilledRowIndex == 0) ? 2 : lastFilledRowIndex + 2;
-
-    String colToLetter(int colIndex) {
-      String letter = "";
-      int tempCol = colIndex;
-      while (tempCol >= 0) {
-        letter = String.fromCharCode((tempCol % 26) + 65) + letter;
-        tempCol = (tempCol ~/ 26) - 1;
-      }
-      return letter;
-    }
-
-    final startColLetter = colToLetter(dateIdx);
-    final endColLetter = colToLetter(dateIdx + rowData.length - 1);
-    final targetRange = "'$sheetName'!$startColLetter$targetRow:$endColLetter$targetRow";
+    final targetRow = existingRows.length + 1;
+    final targetRange = "'$sheetName'!A$targetRow:G$targetRow";
 
     try {
       final valueRange = sheets.ValueRange(
@@ -913,10 +717,10 @@ class HouseholdSheetService {
         valueInputOption: "USER_ENTERED",
       );
 
-      print("✅ [$sheetName] ${isIncome ? '수입' : '지출'} 입력 성공 (행: $targetRow, 범위: $targetRange)");
+      AppLogger.i("✅ [$sheetName] ${isIncome ? '수입' : '지출'} 입력 성공 (행: $targetRow, 범위: $targetRange)");
       return true;
     } catch (e) {
-      print("❌ [$sheetName] 시트 업데이트 실패: $e");
+      AppLogger.i("❌ [$sheetName] 시트 업데이트 실패: $e");
       return false;
     }
   }
@@ -960,11 +764,10 @@ class HouseholdSheetService {
   }) async {
     final sheetsApi = sheets.SheetsApi(client);
 
-    // 캐시 매니저를 활용해 빠른 ID 반환
     final targetSpreadsheetId = await setupLedgerSpreadsheetForYear(client, year);
 
     final monthSheetName = '$month월';
-    final range = "'$monthSheetName'!A1:J1000";
+    final range = "'$monthSheetName'!A1:G1000";
 
     try {
       final response = await sheetsApi.spreadsheets.values.get(
@@ -977,23 +780,93 @@ class HouseholdSheetService {
         return [];
       }
 
-      final isIncome = (type == TransactionType.income);
       final List<LedgerItem> items = [];
-
-      final dateIdx = isIncome ? 0 : 5;
-      final payMethodIdx = isIncome ? null : 6;
-      final categoryIdx = isIncome ? 1 : 7;
-      final descIdx = isIncome ? 2 : 8;
-      final amountIdx = isIncome ? 3 : 9;
+      final targetTypeStr = (type == TransactionType.income) ? "수입" : "지출";
 
       for (int i = 1; i < rows.length; i++) {
         final row = rows[i];
 
-        if (row.length <= amountIdx) continue;
+        if (row.length <= 5) continue;
 
-        final rawDate = row[dateIdx].toString().trim();
-        final rawDesc = row[descIdx].toString().trim();
-        final rawAmount = row[amountIdx].toString().replaceAll(',', '').trim();
+        final rawDate = row[0].toString().trim();
+        final rawType = row[1].toString().trim();
+        final rawPayMethod = row[2].toString().trim();
+        final rawCategory = row[3].toString().trim();
+        final rawDesc = row[4].toString().trim();
+        final rawAmount = row[5].toString().replaceAll(',', '').trim();
+        final rawMemo = row.length > 6 ? row[6].toString().trim() : null;
+
+        // 선택한 TransactionType과 일치하는 항목만 필터링
+        if (rawType != targetTypeStr) continue;
+        if (rawDate.isEmpty || rawAmount.isEmpty || rawDesc.isEmpty) continue;
+
+        final parsedAmount = int.tryParse(rawAmount);
+        final parsedDate = DateTime.tryParse(rawDate);
+
+        if (parsedAmount == null || parsedDate == null) continue;
+
+        items.add(
+          LedgerItem(
+            date: parsedDate,
+            type: type,
+            description: rawDesc,
+            amount: parsedAmount,
+            category: rawCategory.isNotEmpty ? rawCategory : "미분류",
+            payMethod: rawPayMethod != "-" ? rawPayMethod : null,
+            memo: rawMemo ?? "",
+          ),
+        );
+      }
+
+      return items;
+    } on sheets.DetailedApiRequestError catch (e) {
+      AppLogger.i("⚠️ [$monthSheetName] 시트 읽기 실패 (${e.status}): ${e.message}");
+      return [];
+    } catch (e) {
+      AppLogger.i("⚠️ [$monthSheetName] 내역 조회 중 예외 발생: $e");
+      return [];
+    }
+  }
+
+  /// 특정 연월의 전체 거래 내역(수입 + 지출) 한 번에 조회
+  Future<List<LedgerItem>> getMonthlyLedger({
+    required AuthClient client,
+    required int year,
+    required int month,
+  }) async {
+    final sheetsApi = sheets.SheetsApi(client);
+
+    // 연도에 맞는 스프레드시트 ID 가져오기
+    final targetSpreadsheetId = await setupLedgerSpreadsheetForYear(client, year);
+
+    final monthSheetName = '$month월';
+    final range = "'$monthSheetName'!A1:G1000";
+
+    try {
+      final response = await sheetsApi.spreadsheets.values.get(
+        targetSpreadsheetId,
+        range,
+      );
+
+      final rows = response.values;
+      if (rows == null || rows.length <= 1) {
+        return [];
+      }
+
+      final List<LedgerItem> items = [];
+
+      for (int i = 1; i < rows.length; i++) {
+        final row = rows[i];
+
+        if (row.length <= 5) continue;
+
+        final rawDate = row[0].toString().trim();
+        final rawType = row[1].toString().trim();
+        final rawPayMethod = row[2].toString().trim();
+        final rawCategory = row[3].toString().trim();
+        final rawDesc = row[4].toString().trim();
+        final rawAmount = row[5].toString().replaceAll(',', '').trim();
+        final rawMemo = row.length > 6 ? row[6].toString().trim() : null;
 
         if (rawDate.isEmpty || rawAmount.isEmpty || rawDesc.isEmpty) continue;
 
@@ -1002,10 +875,10 @@ class HouseholdSheetService {
 
         if (parsedAmount == null || parsedDate == null) continue;
 
-        final category = row.length > categoryIdx ? row[categoryIdx].toString().trim() : "미입력";
-        final payMethod = (payMethodIdx != null && row.length > payMethodIdx)
-            ? row[payMethodIdx].toString().trim()
-            : null;
+        // 💡 시트의 거래유형 텍스트("수입")에 맞춰 TransactionType 결정
+        final TransactionType type = (rawType == "수입")
+            ? TransactionType.income
+            : TransactionType.expense;
 
         items.add(
           LedgerItem(
@@ -1013,21 +886,23 @@ class HouseholdSheetService {
             type: type,
             description: rawDesc,
             amount: parsedAmount,
-            category: category,
-            payMethod: payMethod,
+            category: rawCategory.isNotEmpty ? rawCategory : "미분류",
+            payMethod: (rawPayMethod != "-" && rawPayMethod.isNotEmpty) ? rawPayMethod : null,
+            memo: rawMemo ?? "",
           ),
         );
       }
 
       return items;
     } on sheets.DetailedApiRequestError catch (e) {
-      print("⚠️ [$monthSheetName] 시트 읽기 실패 (${e.status}): ${e.message}");
+      AppLogger.i("⚠️ [$monthSheetName] 시트 읽기 실패 (${e.status}): ${e.message}");
       return [];
     } catch (e) {
-      print("⚠️ [$monthSheetName] 내역 조회 중 예외 발생: $e");
+      AppLogger.i("⚠️ [$monthSheetName] 내역 조회 중 예외 발생: $e");
       return [];
     }
   }
 }
+
 
 

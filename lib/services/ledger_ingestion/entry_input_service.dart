@@ -1,6 +1,7 @@
 import 'package:googleapis/sheets/v4.dart' as sheets;
 import 'package:household_ledger/services/ledger_ingestion/ledger_item.dart';
 import 'package:household_ledger/services/google_drive/google_spreadsheet.dart';
+import 'package:household_ledger/services/utils/app_logger.dart';
 
 
 /// 단일 입력을 Google Sheets에 전송하는 입력 서비스
@@ -28,7 +29,7 @@ class SingleEntryService {
         );
         existingRows = response.values ?? [];
       } catch (e) {
-        print("⚠️ [$sheetName] 시트 읽기 실패 (신규 시트 또는 데이터 없음): $e");
+        AppLogger.i("⚠️ [$sheetName] 시트 읽기 실패 (신규 시트 또는 데이터 없음): $e");
       }
 
       final bool isAppended = await sheetService.appendTransactionData(
@@ -42,11 +43,11 @@ class SingleEntryService {
       if (isAppended) {
         return ParseResult.success;
       } else {
-        print("🔁 [단일 입력 중복 스킵]: ${item.date} | ${item.description} | ${item.amount}원");
+        AppLogger.i("🔁 [단일 입력 중복 스킵]: ${item.date} | ${item.description} | ${item.amount}원");
         return ParseResult.duplicate;
       }
     } catch (e) {
-      print("❌ [appendParseSingleLine] 처리 실패: $e");
+      AppLogger.i("❌ [appendParseSingleLine] 처리 실패: $e");
       return ParseResult.fail;
     }
   }
@@ -64,7 +65,7 @@ class MultiEntryService {
     int duplicateCount = 0;
     int failCount = 0;
 
-    print("🚀 [MultiEntryService] 총 ${itemMaps.length}개 항목 일괄 처리 시작");
+    AppLogger.i("🚀 [MultiEntryService] 총 ${itemMaps.length}개 항목 일괄 처리 시작");
 
     // 1. 월(Sheet)별로 입력 값 분류
     final Map<String, List<LedgerItem>> itemsBySheet = {};
@@ -79,7 +80,7 @@ class MultiEntryService {
         final sheetName = "${item.date.month}월";
         itemsBySheet.putIfAbsent(sheetName, () => []).add(item);
       } catch (e) {
-        print("❌ [Item 변환 실패]: $e");
+        AppLogger.i("❌ [Item 변환 실패]: $e");
         failCount++;
       }
     }
@@ -98,7 +99,7 @@ class MultiEntryService {
         );
         existingRows = response.values ?? [];
       } catch (e) {
-        print("⚠️ [$sheetName] 기존 데이터 읽기 실패 (신규 시트 가능성): $e");
+        AppLogger.i("⚠️ [$sheetName] 기존 데이터 읽기 실패 (신규 시트 가능성): $e");
       }
 
       // 2-2. 기존 시트 행 데이터 정규화 및 고유 키(Set) 등록
@@ -155,7 +156,7 @@ class MultiEntryService {
         if (existingKeys.contains(itemKey)) {
           // 중복 발견!
           duplicateCount++;
-          print("🔁 [중복 스킵] [$sheetName] $dateDigits | $targetDesc | ${item.amount}원");
+          AppLogger.i("🔁 [중복 스킵] [$sheetName] $dateDigits | $targetDesc | ${item.amount}원");
         } else {
           // 신규 데이터 추가 목록에 넣고, 이번 입력 뭉치 내 중복 방지용으로 Key 세트에도 즉시 추가
           itemsToAppend.add(item);
@@ -175,20 +176,20 @@ class MultiEntryService {
 
           if (isSuccess) {
             successCount += itemsToAppend.length;
-            print("✅ [$sheetName] ${itemsToAppend.length}개 신규 항목 입력 성공!");
+            AppLogger.i("✅ [$sheetName] ${itemsToAppend.length}개 신규 항목 입력 성공!");
           } else {
             failCount += itemsToAppend.length;
           }
         } catch (e) {
-          print("❌ [$sheetName] 배치 입력 실패: $e");
+          AppLogger.i("❌ [$sheetName] 배치 입력 실패: $e");
           failCount += itemsToAppend.length;
         }
       } else {
-        print("💡 [$sheetName] 전송할 신규 항목이 없습니다. (모두 중복 스킵됨)");
+        AppLogger.i("💡 [$sheetName] 전송할 신규 항목이 없습니다. (모두 중복 스킵됨)");
       }
     }
 
-    print("📊 [처리 완료] 성공: $successCount, 중복스킵: $duplicateCount, 실패: $failCount");
+    AppLogger.i("📊 [처리 완료] 성공: $successCount, 중복스킵: $duplicateCount, 실패: $failCount");
 
     return {
       ParseResult.success: successCount,
@@ -236,7 +237,7 @@ Future<bool> appendTransactionBatch(
 
     return true;
   } catch (e) {
-    print("❌ [appendTransactionBatch] 오류 발생: $e");
+    AppLogger.i("❌ [appendTransactionBatch] 오류 발생: $e");
     return false;
   }
 }

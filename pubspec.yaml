@@ -49,6 +49,7 @@ dependencies:
   shared_preferences: ^2.2.2 # 웹 & 앱 공통 Key-Value 저장소
   flutter_launcher_icons: ^0.13.1
   mocktail: ^1.0.4  # 또는 mockito
+  logger: ^2.5.0 # 최신 버전 사용
 
 
 dev_dependencies:

@@ -1,7 +1,6 @@
-//category_detail_ui.dart
-
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
+import 'package:household_ledger/ui/an_item_detail_ui.dart';
 
 class CategoryDetailUI extends StatelessWidget {
   final String categoryName;
@@ -76,9 +75,9 @@ class CategoryDetailUI extends StatelessWidget {
                     itemBuilder: (context, index) {
                       final item = items[index];
 
-                      // Google Sheet 데이터의 날짜/메모/결제수단/금액 파싱 (필드명은 실제 모델에 맞춰 자동 대응)
+                      // Google Sheet 데이터의 날짜/메모/결제수단/금액 파싱
                       final DateFormat dateFormatter = DateFormat('yyyy-MM-dd');
-                      // 2. item.date의 타입에 따른 안전한 처리
+                      
                       final String dateStr = () {
                         if (item.date == null) return '';
                         if (item.date is DateTime) {
@@ -86,6 +85,7 @@ class CategoryDetailUI extends StatelessWidget {
                         }
                         return item.date.toString(); // 이미 String이거나 다른 타입인 경우
                       }();
+                      
                       final String description = (item.description != null && item.description.isNotEmpty)
                           ? item.description
                           : '설명 없음';
@@ -94,6 +94,26 @@ class CategoryDetailUI extends StatelessWidget {
 
                       return ListTile(
                         contentPadding: const EdgeInsets.symmetric(vertical: 8, horizontal: 4),
+                        
+                        // 클릭 시 AnItemDetailUI 화면으로 이동
+                        onTap: () {
+                          Navigator.push(
+                            context,
+                            MaterialPageRoute(
+                              builder: (context) => AnItemDetailUI(
+                                item: item,
+                                isExpense: isExpense,
+                                onUpdate: (item, updatedData) {
+                                  // TODO: 수정 시 구글 시트 반영 또는 State 갱신 로직
+                                },
+                                onDelete: (item) {
+                                  // TODO: 삭제 시 구글 시트 반영 또는 State 갱신 로직
+                                },
+                              ),
+                            ),
+                          );
+                        },
+                        
                         title: Text(
                           description,
                           style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
