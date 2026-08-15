@@ -742,7 +742,7 @@ class HouseholdSheetService {
     List<List<dynamic>> existingRows,
     LedgerItem item,
   ) async {
-    if (item.amount <= 0) {
+    if (item.amount == 0) {
       AppLogger.i("⚠️ [0원 패스] [${item.formattedDate}] '${item.description}' 금액이 0원이므로 저장하지 않습니다.");
       return false;
     }

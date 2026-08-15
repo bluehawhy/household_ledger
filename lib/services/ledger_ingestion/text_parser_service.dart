@@ -482,18 +482,18 @@ String _cleanRemainingDescription(String text) {
     if (text.trim().isEmpty) return null;
 
     // 1. '원'이 포함된 금액 우선 탐색 (천 단위 쉼표 허용)
-    // 예: 4,000원, 56000 원
-    final wonMatches = _amountPattern.allMatches(text);
+    // 💡 [수정] 음수(-) 기호를 포함하도록 정규식 수정
+    final wonPattern = RegExp(r'(-?\d{1,3}(?:,\d{3})+|-?\d+)\s*원');
+    final wonMatches = wonPattern.allMatches(text);
 
     for (final match in wonMatches) {
       final matchedText = match.group(0)!;
       final numStr = match.group(1)!.replaceAll(',', '');
 
-      // Leading Zero 예외 처리 ('05원' 등 제외)
-      if (numStr.length > 1 && numStr.startsWith('0')) continue;
+      if (numStr.length > 1 && (numStr.startsWith('0') || numStr.startsWith('-0'))) continue;
 
       final parsedNum = int.tryParse(numStr);
-      if (parsedNum != null && parsedNum > 0) {
+      if (parsedNum != null && parsedNum != 0) {
         return (amount: parsedNum, matchedText: matchedText);
       }
     }
@@ -501,7 +501,8 @@ String _cleanRemainingDescription(String text) {
     // 2. '원'이 없는 일반 숫자들 수집 및 조건 필터링
     final rawNumRegExp = RegExp(r'\b\d+(?:,\d{3})*\b');
     final rawMatches = rawNumRegExp.allMatches(text);
-
+    // 💡 [추가] 음수 기호가 붙은 숫자 탐색
+    final negNumRegExp = RegExp(r'-\d+(?:,\d{3})*');
     final List<({int amount, String matchedText})> candidates = [];
 
     for (final match in rawMatches) {
@@ -512,13 +513,24 @@ String _cleanRemainingDescription(String text) {
       if (numStr.length > 1 && numStr.startsWith('0')) continue;
 
       final parsed = int.tryParse(numStr);
-      if (parsed == null || parsed <= 0) continue;
+      if (parsed == null || parsed == 0) continue;
 
       // 연도 범위(2020~2030) 숫자는 기본 제외
       if (parsed >= 2020 && parsed <= 2030) continue;
 
       candidates.add((amount: parsed, matchedText: matchedText));
     }
+
+    // 음수 숫자 후보 추가
+    for (final match in negNumRegExp.allMatches(text)) {
+      final matchedText = match.group(0)!;
+      final numStr = matchedText.replaceAll(',', '');
+      final parsed = int.tryParse(numStr);
+      if (parsed != null && parsed != 0) {
+        candidates.add((amount: parsed, matchedText: matchedText));
+      }
+    }
+
 
     if (candidates.isEmpty) return null;
 
