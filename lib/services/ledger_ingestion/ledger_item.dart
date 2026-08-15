@@ -1,3 +1,5 @@
+//ledger_item.dart
+
 import 'dart:convert';
 import 'package:household_ledger/services/utils/asset_loader.dart';
 import 'package:household_ledger/services/utils/app_logger.dart';
@@ -13,13 +15,6 @@ enum TransactionType {
     if (typeStr == 'income') return TransactionType.income;
     return TransactionType.expense;
   }
-}
-
-/// 파싱 및 시트 데이터 추가 결과 상태
-enum ParseResult {
-  success,   // 성공적으로 추가됨
-  duplicate, // 중복 데이터로 확인되어 스킵됨
-  fail,      // 비어있거나 파싱/API 통신 에러 등 실패
 }
 
 /// 가계부 거래 항목 모델
@@ -158,6 +153,11 @@ class LedgerItem {
 // JSON 기반 카테고리 자동 매퍼
 // ============================================================================
 class CategoryMapper {
+  // 💡 싱글톤 인스턴스 생성
+  static final CategoryMapper _instance = CategoryMapper._internal();
+  factory CategoryMapper() => _instance;
+  CategoryMapper._internal();
+
   // 카테고리명 -> 키워드 리스트 매핑
   Map<String, List<String>> incomeCategories = {};
   Map<String, List<String>> expenseCategories = {};
@@ -166,6 +166,7 @@ class CategoryMapper {
   bool get isLoaded => _isLoaded;
 
   Future<void> loadCategoryJson([String filePath = 'assets/ledger_ingestion_info.json']) async {
+    if (_isLoaded) return;
     try {
       final jsonString = await JsonAssetManager.loadJson(filePath);
       final Map<String, dynamic> data = jsonDecode(jsonString);
@@ -204,9 +205,10 @@ class CategoryMapper {
       }
 
       _isLoaded = true;
-      AppLogger.i("✅ [CategoryMapper] 카테고리 JSON 데이터 로드 완료! (수입: ${incomeCategories.length}개, 지출: ${expenseCategories.length}개 항목)");
+      AppLogger.i("카테고리 JSON 데이터 로드 완료! (수입: ${incomeCategories.length}개, 지출: ${expenseCategories.length}개 항목)");
+      _isLoaded = true;
     } catch (e) {
-      AppLogger.i("⚠️ [CategoryMapper] JSON 로드/파싱 에러 ($filePath): $e");
+      AppLogger.i("JSON 로드/파싱 에러 ($filePath): $e");
       _isLoaded = true; // 실패 시에도 반복 로드 시도를 막기 위해 flag 처리
     }
   }

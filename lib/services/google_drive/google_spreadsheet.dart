@@ -364,77 +364,75 @@ class HouseholdSheetService {
   // ==========================================================================
   // 🔵 [기능 B] 수입 / 지출 내역 단일 항목 입력 로직
   // ==========================================================================
-
   Future<void> addTransaction({
-    required AuthClient client,
-    required LedgerItem item,
-    String? spreadsheetId,
-  }) async {
-    if (item.amount <= 0) {
-      AppLogger.i("⚠️ [0원 패스] [${item.formattedDate}] '${item.description}' 금액이 0원이므로 저장하지 않습니다.");
-      return;
-    }
-    if (!categoryMapper.isLoaded) {
-      await categoryMapper.loadCategoryJson();
-    }
+      required AuthClient client,
+      required LedgerItem item,
+      String? spreadsheetId,
+    }) async {
+      if (item.amount <= 0) {
+        AppLogger.i("⚠️ [0원 패스] [${item.formattedDate}] '${item.description}' 금액이 0원이므로 저장하지 않습니다.");
+        return;
+      }
+      if (!categoryMapper.isLoaded) {
+        await categoryMapper.loadCategoryJson();
+      }
 
-    final sheetsApi = sheets.SheetsApi(client);
+      final sheetsApi = sheets.SheetsApi(client);
 
-    final targetSpreadsheetId = (spreadsheetId != null && spreadsheetId.isNotEmpty)
-        ? spreadsheetId
-        : await setupLedgerSpreadsheetForYear(client, item.date.year);
+      // 🔹 [수정] 항목의 연도(item.date.year)를 기반으로 해당 연도의 가계부 파일 ID를 조회/자동 생성합니다.
+      final targetSpreadsheetId = await setupLedgerSpreadsheetForYear(client, item.date.year);
 
-    item = item.copyWith(
-      category: categoryMapper.getCategory(
-        item.description,
-        isIncome: item.type == TransactionType.income,
-      ),
-    );
-
-    final monthSheetName = '${item.date.month}월';
-
-    await _ensureMonthSheetExists(sheetsApi, targetSpreadsheetId, monthSheetName);
-
-    final range = "'$monthSheetName'!A1:G1000";
-    List<List<dynamic>> existingRows = [];
-
-    try {
-      final response = await sheetsApi.spreadsheets.values.get(
-        targetSpreadsheetId,
-        range,
+      item = item.copyWith(
+        category: categoryMapper.getCategory(
+          item.description,
+          isIncome: item.type == TransactionType.income,
+        ),
       );
-      existingRows = response.values ?? [];
-    } on sheets.DetailedApiRequestError catch (e) {
-      AppLogger.i("⚠️ [$monthSheetName] 시트 읽기 실패 (${e.status}): ${e.message}");
-      return;
-    } catch (e) {
-      AppLogger.i("⚠️ [$monthSheetName] 시트 읽기 중 예외 발생: $e");
-      return;
-    }
 
-    if (existingRows.isEmpty) {
-      await sheetsApi.spreadsheets.values.update(
-        sheets.ValueRange(range: "'$monthSheetName'!A1:G1", values: [defaultHeader]),
+      final monthSheetName = '${item.date.month}월';
+
+      await _ensureMonthSheetExists(sheetsApi, targetSpreadsheetId, monthSheetName);
+
+      final range = "'$monthSheetName'!A1:G1000";
+      List<List<dynamic>> existingRows = [];
+
+      try {
+        final response = await sheetsApi.spreadsheets.values.get(
+          targetSpreadsheetId,
+          range,
+        );
+        existingRows = response.values ?? [];
+      } on sheets.DetailedApiRequestError catch (e) {
+        AppLogger.i("⚠️ [$monthSheetName] 시트 읽기 실패 (${e.status}): ${e.message}");
+        return;
+      } catch (e) {
+        AppLogger.i("⚠️ [$monthSheetName] 시트 읽기 중 예외 발생: $e");
+        return;
+      }
+
+      if (existingRows.isEmpty) {
+        await sheetsApi.spreadsheets.values.update(
+          sheets.ValueRange(range: "'$monthSheetName'!A1:G1", values: [defaultHeader]),
+          targetSpreadsheetId,
+          "'$monthSheetName'!A1:G1",
+          valueInputOption: "USER_ENTERED",
+        );
+        existingRows = [defaultHeader];
+      }
+
+      if (_checkDuplicate(existingRows, item)) {
+        AppLogger.i("⚠️ [중복 패스] [${item.formattedDate}] '${item.description}' (${item.amount}원) 내역이 이미 존재합니다.");
+        return;
+      }
+
+      await appendTransactionData(
+        sheetsApi,
         targetSpreadsheetId,
-        "'$monthSheetName'!A1:G1",
-        valueInputOption: "USER_ENTERED",
+        monthSheetName,
+        existingRows,
+        item,
       );
-      existingRows = [defaultHeader];
     }
-
-    if (_checkDuplicate(existingRows, item)) {
-      AppLogger.i("⚠️ [중복 패스] [${item.formattedDate}] '${item.description}' (${item.amount}원) 내역이 이미 존재합니다.");
-      return;
-    }
-
-    await appendTransactionData(
-      sheetsApi,
-      targetSpreadsheetId,
-      monthSheetName,
-      existingRows,
-      item,
-    );
-  }
 
   // ==========================================================================
   // 🟡 [기능 B-2] 수입 / 지출 내역 수정(업데이트) 로직
@@ -618,6 +616,62 @@ class HouseholdSheetService {
       return false;
     }
   }
+
+  // Map<(int year, int month), List<LedgerItem>> 형태로 그룹화
+  Map<String, List<LedgerItem>> groupItemsByYearAndMonth(List<LedgerItem> items) {
+    final Map<String, List<LedgerItem>> grouped = {};
+
+    for (final item in items) {
+      // item.date (DateTime)를 기준으로 연도와 월 추출
+      final key = "${item.date.year}_${item.date.month}";
+      grouped.putIfAbsent(key, () => []).add(item);
+    }
+
+    return grouped;
+  }
+
+  Future<Map<String, int>> processMultiYearMonthBatch(
+    AuthClient client, // 👈 AuthClient 추가
+    sheets.SheetsApi sheetsApi,
+    List<LedgerItem> items,
+  ) async {
+    int totalSuccess = 0;
+    int totalSkipped = 0;
+
+    // 1. 연도 및 월별 그룹화
+    final groupedMap = groupItemsByYearAndMonth(items);
+
+    for (final entry in groupedMap.entries) {
+      final yearMonthKey = entry.key; // 예: "2025_11"
+      final parts = yearMonthKey.split('_');
+      final int year = int.parse(parts[0]);
+      final int month = int.parse(parts[1]);
+      final List<LedgerItem> groupItems = entry.value;
+
+      final sheetName = "${month}월";
+
+      // 💡 기존 메서드 이름인 setupLedgerSpreadsheetForYear 로 변경
+      final String spreadsheetId = await setupLedgerSpreadsheetForYear(client, year);
+
+      AppLogger.i("🚀 [$year년 $sheetName] ${groupItems.length}개 항목 처리 시작 (Spreadsheet ID: $spreadsheetId)");
+
+      // 3. 월별 배치 데이터 추가 실행
+      final success = await appendTransactionBatch(
+        sheetsApi,
+        spreadsheetId,
+        sheetName,
+        groupItems,
+      );
+
+      if (success) {
+        totalSuccess += groupItems.length;
+      }
+    }
+
+    AppLogger.i("📊 [최종 완료] 성공: $totalSuccess건");
+    return {'success': totalSuccess, 'skipped': totalSkipped};
+  }
+
 
   Future<void> _ensureMonthSheetExists(
     sheets.SheetsApi sheetsApi,

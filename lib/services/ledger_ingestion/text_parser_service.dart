@@ -8,6 +8,8 @@ import 'package:household_ledger/services/utils/app_logger.dart';
 class TransactionParserConfig {
   List<String> ignoredWords = [];
   List<RegExp> ignoredPatterns = [];
+  // 💡 보정 대상 Mapping 저장 (Key: 치환될 표준 키워드, Value: 보정할 정규식 리스트)
+  Map<String, List<RegExp>> replacementRules = {};
 
   TransactionParserConfig();
 
@@ -23,7 +25,54 @@ class TransactionParserConfig {
             .toList();
       }
     }
+    // 💡 [추가] "보정 대상" 읽어오기
+    final replacementConfig = json["보정 대상"] as Map<String, dynamic>?;
+    if (replacementConfig != null) {
+      replacementConfig.forEach((targetKey, patterns) {
+        if (patterns is List) {
+          replacementRules[targetKey] = patterns
+              .map((p) => RegExp(p.toString(), caseSensitive: false))
+              .toList();
+        }
+      });
+    }
   }
+
+  /// 보정 처리 함수: 정규식 패턴 발견 시 key 값으로 치환/중복 제거
+  String normalizeText(String rawText) {
+    if (rawText.isEmpty) return rawText;
+
+    String normalized = rawText;
+
+    replacementRules.forEach((targetKey, patterns) {
+      for (final pattern in patterns) {
+        // 문장 내 해당 정규식 패턴이 매칭되는 동안 반복 처리
+        while (pattern.hasMatch(normalized)) {
+          final match = pattern.firstMatch(normalized);
+          if (match == null) break;
+
+          final matchedText = match.group(0)!;
+
+          // 1. 매칭된 텍스트(예: "체크카드(1329)") 부분을 제외한 나머지 문장 추출
+          final remainingText = normalized.replaceFirst(matchedText, '');
+
+          // 2. '나머지 문장'에 이미 targetKey("체크카드")가 존재하는지 검토 💡
+          if (remainingText.contains(targetKey)) {
+            // 나머지 항목에 이미 키가 있으면 매칭된 패턴 부분은 삭제
+            normalized = normalized.replaceFirst(matchedText, ' ');
+          } else {
+            // 나머지 항목에 없으면 targetKey("체크카드")로 변경
+            normalized = normalized.replaceFirst(matchedText, ' $targetKey ');
+          }
+        }
+      }
+    });
+
+    return normalized.replaceAll(RegExp(r'\s+'), ' ').trim();
+  }
+
+
+
 
   /// 토큰 단위 검사
   bool isIgnored(String token) {
@@ -36,12 +85,13 @@ class TransactionParserConfig {
     return false;
   }
 
-  /// 문장 전체 덩어리 정제 (JSON 정규식 활용)
+  /// 문장 전체 덩어리 정제 (JSON 정규식 및 무시 키워드 활용)
   String cleanText(String rawText) {
     if (rawText.isEmpty) return rawText;
 
     String cleaned = rawText;
 
+    // 1. [정규식 패턴 제거] ignoredPatterns
     for (final pattern in ignoredPatterns) {
       String patternStr = pattern.pattern;
 
@@ -59,19 +109,38 @@ class TransactionParserConfig {
         // 정규식 예외 발생 시 무시
       }
     }
+
+    // 2. [무시 키워드 제거] ignoredWords 💡
+    // 긴 단어가 짧은 단어보다 먼저 제거되도록 정렬 (예: '일반과세'가 '과세'보다 먼저 제거)
+    final sortedWords = List<String>.from(ignoredWords)
+      ..sort((a, b) => b.length.compareTo(a.length));
+
+    for (final word in sortedWords) {
+      final trimmedWord = word.trim();
+      if (trimmedWord.isNotEmpty) {
+        cleaned = cleaned.replaceAll(trimmedWord, ' ');
+      }
+    }
+
+    // 3. [연속 공백 정리]
     return cleaned.replaceAll(RegExp(r'\s+'), ' ').trim();
   }
 }
-
 
 enum InputType { excel, csv, txt }
 
 /// 텍스트 입력을 분석하여 Map 형태의 가계부 데이터로 변환하는 서비스
 class TextParserService {
-  static final _fullDatePattern = RegExp(r'^(\d{4})[.-/](\d{1,2})[.-/](\d{1,2})(?:\s+\d{1,2}:\d{1,2})?$');
-  static final _shortDatePattern = RegExp(r'^(\d{1,2})[.-/](\d{1,2})(?:\s+\d{1,2}:\d{1,2})?$');
+  // 💡 싱글톤 인스턴스 생성
+  static final TextParserService _instance = TextParserService._internal();
+  factory TextParserService() => _instance;
+  TextParserService._internal();
+
+  bool _isInitialized = false;
+
+  static final _fullDatePattern = RegExp(r'\b(?:(\d{4})[./\-])?(\d{1,2})[./\-](\d{1,2})(?:\s+(\d{1,2}):(\d{1,2})(?::\d{1,2})?)?',);
   static final _cardNoPattern = RegExp(r'^\d{4}[-*\s]+[\d*]{2,4}[-*\s]+[\d*]{2,4}[-*\s]+\d{4}$');
-  static final _amountPattern = RegExp(r'^-?\s*(\d{1,3}(,\d{3})*|\d+)(원)?$');
+  static final _amountPattern = RegExp(r'(\d{1,3}(?:,\d{3})+|\d+)\s*원');
 
   // Config 객체 선언
   TransactionParserConfig _config = TransactionParserConfig();
@@ -86,12 +155,14 @@ class TextParserService {
 
   /// JSON 리소스 로드 및 초기화
   Future<void> init([String filePath = 'assets/ledger_ingestion_info.json']) async {
+    if (_isInitialized) return;
     try {
       final binJsonString = await JsonAssetManager.loadJson('assets/card_bin_data.json');
       _binData = jsonDecode(binJsonString) as Map<String, dynamic>;
-      AppLogger.i("✅ [TextParserService] BIN 데이터 로드 완료 (${_binData.length}개)");
+      AppLogger.i("BIN 데이터 로드 완료 (${_binData.length}개)");
+      _isInitialized = true;
     } catch (e) {
-      AppLogger.i("⚠️ [TextParserService] BIN 데이터 로드 실패: $e");
+      AppLogger.i("BIN 데이터 로드 실패: $e");
     }
 
     try {
@@ -117,25 +188,9 @@ class TextParserService {
         );
       }
 
-
-      //if (data.containsKey("수입 분류")) {
-      //  final Map<String, dynamic> map = data["수입 분류"];
-      //  _incomeCategories = map.map((k, v) => MapEntry(k, List<String>.from(v)));
-      //}
-
-      //if (data.containsKey("지출 분류")) {
-      //  final Map<String, dynamic> map = data["지출 분류"];
-      //  _expenseCategories = map.map((k, v) => MapEntry(k, List<String>.from(v)));
-      //}
-
-      //if (data.containsKey("지출 수단")) {
-      //  final Map<String, dynamic> map = data["지출 수단"];
-      //  _payMethods = map.map((k, v) => MapEntry(k, List<String>.from(v)));
-      //}
-
-      AppLogger.i("✅ [TextParserService] '$filePath' 카테고리 매핑 로드 완료");
+      AppLogger.i("✅ '$filePath' 카테고리 매핑 로드 완료");
     } catch (e) {
-      AppLogger.i("⚠️ [TextParserService] '$filePath' 로드 실패: $e");
+      AppLogger.i("⚠️ '$filePath' 로드 실패: $e");
     }
   }
 
@@ -145,7 +200,7 @@ class TextParserService {
 
     // 1단계: 원본(rawInput) 상태에서 입력 데이터 타입부터 먼저 감지
     final inputType = _detectInputType(rawInput);
-    AppLogger.i("🔹 감지된 입력 타입: $inputType");
+    AppLogger.i(" 감지된 입력 타입: $inputType");
 
     // 2단계: 타입별 파싱 분기
     switch (inputType) {
@@ -166,136 +221,126 @@ class TextParserService {
   }
 
   /// 단일 줄 텍스트를 파싱하여 Map<String, dynamic> 형태로 반환
-  Map<String, dynamic> parseSingleLineToMap(String input, {InputType inputType = InputType.txt,}) {
-    // 💡 단일 문장 파싱 시작 시점에도 Pre-cleaning 적용
-    String rawText = _preCleanInput(input);
-    if (rawText.isEmpty) {
+  Map<String, dynamic> parseSingleLineToMap(
+    String input, {
+    InputType inputType = InputType.txt,
+  }) {
+    // -------------------------------------------------------------
+    // [1단계: 사전 보정 (Normalize) - 체크카드(1329) -> 체크카드]
+    // -------------------------------------------------------------
+    String normalizedText = _config.normalizeText(input);
+    AppLogger.i("🔹 1차 보정 완료 라인 : $normalizedText");
+
+    // -------------------------------------------------------------
+    // [2단계: 사전 정제 (_preCleanInput)]
+    // -------------------------------------------------------------
+    String workingText = _preCleanInput(normalizedText);
+    AppLogger.i("🔹 _preCleanInput 완료 라인 : $workingText");
+
+    if (workingText.isEmpty) {
       throw FormatException("입력된 텍스트가 비어있습니다.");
     }
 
-    // 💡 타입별 토큰화 적용!
-    List<String> tokens = _tokenize(rawText, inputType);
-    AppLogger.i("🔹 토큰화된 입력 ($inputType): $tokens");
+  DateTime? date;
+  int? amount;
+  TransactionType type = TransactionType.expense;
+  String? payMethod;
+  String? category;
 
-    DateTime? date;
-    int? amount;
-    TransactionType type = TransactionType.expense;
-    String? payMethod;
-    String? category;
-
-    List<String> remainingTokens = [];
-
-    for (String token in tokens) {
-      // -------------------------------------------------------------
-      // [1단계: 설정파일 기반 무시 대상 검사]
-      // -------------------------------------------------------------
-      if (_config.isIgnored(token)) {
-        continue; // 무시 대상이면 패스!
-      }
-
-      // 카드번호 패턴 (카드사 감지 시 payMethod 확정 후 패스)
-      if (_cardNoPattern.hasMatch(token)) {
-        payMethod ??= _detectCardIssuer(token);
-        continue;
-      }
-
-      // -------------------------------------------------------------
-      // [2단계: 주요 정보 추출]
-      // -------------------------------------------------------------
-
-      // 날짜
-      if (date == null) {
-        final parsedDate = _parseDate(token);
-        if (parsedDate != null) {
-          date = parsedDate;
-          continue;
-        }
-      }
-
-      // 금액
-      if (amount == null) {
-        final parsedAmount = _parseAmount(token);
-        if (parsedAmount != null) {
-          amount = parsedAmount;
-          continue;
-        }
-      }
-
-      // 거래 유형 (수입/지출)
-      if (type == TransactionType.expense && _isIncomeType(token)) {
-        type = TransactionType.income;
-        category ??= _matchCategory(token, type: TransactionType.income);
-      }
-
-      // 결제 수단
-      if (payMethod == null) {
-        final foundPayMethod = _matchPayMethod(token);
-        if (foundPayMethod != null) {
-          payMethod = foundPayMethod;
-          continue;
-        }
-      }
-
-      // 카테고리
-      if (category == null) {
-        final foundCategory = _matchCategory(token, type: type);
-        if (foundCategory != null) {
-          category = foundCategory;
-        }
-      }
-
-      // -------------------------------------------------------------
-      // [3단계: 적요 후보 수집]
-      // -------------------------------------------------------------
-      remainingTokens.add(token);
-    }
-
-    // 기본값 처리
-    date ??= DateTime.now();
-    amount ??= 0;
-
-    // 카테고리 미지정 시 남은 토큰에서 재탐색
-    if (category == null && remainingTokens.isNotEmpty) {
-      for (String t in remainingTokens) {
-        category = _matchCategory(t, type: type);
-        if (category != null) break;
-      }
-    }
-    
-    // -------------------------------------------------------------
-    // [4단계: 적요(Description) 최종 조합]
-    // -------------------------------------------------------------
-    final Set<String> groupHeaderKeys = {
-      ..._incomeCategories.keys,
-      ..._payMethods.keys,
-      ..._expenseCategories.keys,
-    };
-
-    final cleanedTokens = remainingTokens.where((t) {
-      return !groupHeaderKeys.contains(t.trim());
-    }).toList();
-
-    String description = cleanedTokens.join(' ').trim();
-    if (description.isEmpty) {
-      description = category ?? "미지정 내역";
-    }
-
-    // 💡 1. 반환할 Map 결과 생성
-    final result = {
-      'date': date,
-      'type': type,
-      'payMethod': payMethod,
-      'description': description,
-      'amount': amount,
-      'category': category ?? "미입력",
-    };
-    
-    // 💡 2. 결과 출력 (콘솔 확인용)
-    AppLogger.i("✅ [파싱 결과 Map]: $result");
-
-    // 💡 3. 반환
-    return result;
+  // -------------------------------------------------------------
+  // [1단계: 날짜 추출 & 제거]
+  // -------------------------------------------------------------
+  final parsedResult = _parseDate(workingText);
+  if (parsedResult != null) {
+    date = parsedResult.date;
+    // _parseDate 내부에서 실제로 찾은 날짜 문자열만 문장에서 삭제
+    workingText = workingText.replaceFirst(parsedResult.matchedText, ' ').trim();
   }
+
+
+  // -------------------------------------------------------------
+  // [2단계: 금액 추출 & 제거]
+  // -------------------------------------------------------------
+  final amountResult = _parseAmount(workingText);
+  if (amountResult != null) {
+    amount = amountResult.amount;
+    // 문장에서 찾은 금액 문자열만 제거
+    workingText = workingText.replaceFirst(amountResult.matchedText, ' ').trim();
+  }
+
+  // -------------------------------------------------------------
+  // [3단계: 결제수단 추출 & 제거]
+  // -------------------------------------------------------------
+  final payMethodResult = _matchPayMethod(workingText);
+  if (payMethodResult != null) {
+    payMethod = payMethodResult.payMethod; // 예: "신용카드" 또는 "체크카드"
+    // 실제로 문장에서 발견된 키워드 또는 카드번호 문자열 제거
+    workingText = workingText.replaceFirst(payMethodResult.matchedText, ' ').trim();
+  }
+
+  // -------------------------------------------------------------
+  // [4단계: 거래 유형 및 카테고리 추출 & 제거]
+  // -------------------------------------------------------------
+  if (_isIncomeType(workingText)) {
+    type = TransactionType.income;
+  }
+
+  final foundCategory = _matchCategory(workingText, type: type);
+  if (foundCategory != null) {
+    category = foundCategory;
+  }
+
+  // -------------------------------------------------------------
+  // [5단계: 적요(Description) 최종 정제]
+  // -------------------------------------------------------------
+  // 설정 파일의 불필요 키워드 제거 + 불필요한 공백 정리
+  String description = _cleanRemainingDescription(workingText);
+
+  if (description.isEmpty) {
+    description = category ?? "미지정 내역";
+  }
+
+  // 기본값 보정
+  date ??= DateTime.now();
+  amount ??= 0;
+
+  final result = {
+    'date': date,
+    'type': type,
+    'payMethod': payMethod,
+    'description': description,
+    'amount': amount,
+    'category': category ?? "미입력",
+  };
+
+  AppLogger.i("✅ [파싱 결과 Map]: $result");
+  return result;
+}
+
+
+/// 남은 텍스트에서 노이즈/카테고리명 등을 제거하고 적요로 다듬는 헬퍼
+String _cleanRemainingDescription(String text) {
+  String cleaned = text;
+
+  // 카테고리명, 결제수단명 등이 적요에 남아있다면 제거
+  final groupHeaderKeys = {
+    ..._incomeCategories.keys,
+    ..._payMethods.keys,
+    ..._expenseCategories.keys,
+  };
+
+  for (final key in groupHeaderKeys) {
+    cleaned = cleaned.replaceAll(key, ' ');
+  }
+
+  // 특수문자 정제 및 연속 공백을 하나로 압축
+  return cleaned
+      .replaceAll(RegExp(r'(?<=\s|^)[^\w\s가-힣]+(?=\s|$)'), ' ')
+      .replaceAll(RegExp(r'\s+'), ' ')
+      .trim();
+}
+
+
 
   // ==========================================
   // Private 헬퍼 함수들
@@ -429,92 +474,113 @@ class TextParserService {
     return resultLines;
   }
 
-  List<String> _tokenize(String text, InputType inputType) {
-    List<String> rawTokens = [];
 
-    switch (inputType) {
-      case InputType.excel:
-        // Excel: 탭(\t) 구분자로 분할
-        rawTokens = text.split(RegExp(r'\t+'));
-        break;
 
-      case InputType.csv:
-        // CSV: 쉼표(,) 구분자로 분할 (줄 내부 공백은 보존)
-        rawTokens = text.split(',');
-        break;
+  /// 💡 [날짜 단독 파싱 함수] 
+  ({DateTime date, String matchedText})? _parseDate(dynamic input) {
+    if (input is! String) return null;
 
-      case InputType.txt:
-        // TXT: 기존 방식대로 탭이 포함되어 있으면 탭 기준, 아니면 공백(\s+) 기준
-        rawTokens = text.contains('\t')
-            ? text.split(RegExp(r'\t+'))
-            : text.split(RegExp(r'\s+'));
-        break;
+    final text = input.trim();
+    if (text.isEmpty) return null;
+
+    // 1. 통합 정규식 패턴 파싱 (_fullDatePattern)
+    final match = _fullDatePattern.firstMatch(text);
+    if (match != null) {
+      final matchedText = match.group(0)!; // 문장에서 실제 찾아낸 날짜 텍스트 전체
+      final yearStr = match.group(1);
+      final monthStr = match.group(2)!;
+      final dayStr = match.group(3)!;
+      final hourStr = match.group(4);
+      final minuteStr = match.group(5);
+
+      final now = DateTime.now();
+      final year = yearStr != null ? int.parse(yearStr) : now.year;
+      final month = int.parse(monthStr);
+      final day = int.parse(dayStr);
+      final hour = hourStr != null ? int.parse(hourStr) : 0;
+      final minute = minuteStr != null ? int.parse(minuteStr) : 0;
+
+      return (
+        date: DateTime(year, month, day, hour, minute),
+        matchedText: matchedText,
+      );
     }
 
-    return rawTokens
-        .map((e) => e.trim())
-        .where((e) => e.isNotEmpty)
-        .toList();
-  }
-
-DateTime? _parseDate(dynamic input) {
-  // 1. 이미 DateTime 객체로 들어온 경우 그대로 반환
-  if (input is DateTime) return input;
-
-  // 2. 문자열이 아닌 경우 null 반환
-  if (input is! String) return null;
-
-  final token = input.trim();
-
-  // 3. 상대 날짜 키워드 처리
-  if (token == "오늘") return DateTime.now();
-  if (token == "어제") return DateTime.now().subtract(const Duration(days: 1));
-
-  // 4. ISO8601 표준 포맷(2026-08-21 또는 2026-08-21T00:00:00) 파싱 시도
-  final isoParsed = DateTime.tryParse(token);
-  if (isoParsed != null) return isoParsed;
-
-  // 5. 정규식 포맷 파싱 (YYYY-MM-DD 등)
-  final fullMatch = _fullDatePattern.firstMatch(token);
-  if (fullMatch != null) {
-    return DateTime(
-      int.parse(fullMatch.group(1)!),
-      int.parse(fullMatch.group(2)!),
-      int.parse(fullMatch.group(3)!),
-    );
-  }
-
-  // 6. 정규식 포맷 파싱 (MM-DD 등)
-  final shortMatch = _shortDatePattern.firstMatch(token);
-  if (shortMatch != null) {
-    return DateTime(
-      DateTime.now().year,
-      int.parse(shortMatch.group(1)!),
-      int.parse(shortMatch.group(2)!),
-    );
-  }
-
-  return null;
-}
-
-
-  int? _parseAmount(String token) {
-    final match = _amountPattern.firstMatch(token);
-    if (match != null) {
-      String cleanStr = token.replaceAll(RegExp(r'[^\d-]'), '');
-      
-      if (cleanStr.startsWith('0') && cleanStr != '0') {
-        return null;
-      }
-
-      int? parsedNum = int.tryParse(cleanStr);
-      
-      if (parsedNum != null && parsedNum != 0) {
-        return parsedNum;
-      }
+    // 2. 상대 날짜 키워드 처리
+    if (text.contains("오늘")) {
+      return (date: DateTime.now(), matchedText: "오늘");
+    }
+    if (text.contains("어제")) {
+      return (
+        date: DateTime.now().subtract(const Duration(days: 1)),
+        matchedText: "어제"
+      );
     }
     return null;
   }
+
+
+  /// 문장에서 금액을 감지하여 파싱된 금액(int)과 매칭된 문자열을 함께 반환
+  ({int amount, String matchedText})? _parseAmount(String text) {
+    if (text.trim().isEmpty) return null;
+
+    // 1. '원'이 포함된 금액 우선 탐색 (천 단위 쉼표 허용)
+    // 예: 4,000원, 56000 원    
+    final wonMatches = _amountPattern.allMatches(text);
+
+    for (final match in wonMatches) {
+      final matchedText = match.group(0)!;
+      final numStr = match.group(1)!.replaceAll(',', '');
+
+      // Leading Zero 예외 처리 ('05원' 등 제외)
+      if (numStr.length > 1 && numStr.startsWith('0')) continue;
+
+      final parsedNum = int.tryParse(numStr);
+      if (parsedNum != null && parsedNum > 0) {
+        return (amount: parsedNum, matchedText: matchedText);
+      }
+    }
+
+    // 2. '원'이 없는 일반 숫자들 수집 및 조건 필터링
+    final rawNumRegExp = RegExp(r'\b\d+(?:,\d{3})*\b');
+    final rawMatches = rawNumRegExp.allMatches(text);
+
+    final List<({int amount, String matchedText})> candidates = [];
+
+    for (final match in rawMatches) {
+      final matchedText = match.group(0)!;
+      final numStr = matchedText.replaceAll(',', '');
+
+      // 조건 2-1: 0으로 시작하는 숫자 제외 (승인번호, 카드번호, 단일 0 제외)
+      if (numStr.length > 1 && numStr.startsWith('0')) continue;
+
+      final parsed = int.tryParse(numStr);
+      if (parsed == null || parsed <= 0) continue;
+
+      // 연도 범위(2020~2030) 숫자는 기본 제외
+      if (parsed >= 2020 && parsed <= 2030) continue;
+
+      candidates.add((amount: parsed, matchedText: matchedText));
+    }
+
+    if (candidates.isEmpty) return null;
+
+    // 조건 2-2: 뒷자리가 0으로 끝나는 숫자 필터링 (결제금액 우대)
+    final endsWithZero = candidates.where((c) => c.amount % 10 == 0).toList();
+
+    if (endsWithZero.isNotEmpty) {
+      // 조건 2-3: 0으로 끝나는 후보가 여럿(누적금액 등)이면 더 작은 금액 선택
+      endsWithZero.sort((a, b) => a.amount.compareTo(b.amount));
+      return endsWithZero.first;
+    }
+
+    // 0으로 끝나는 후보가 없다면 잔여 후보 중 가장 작은 숫자 선택
+    candidates.sort((a, b) => a.amount.compareTo(b.amount));
+    return candidates.first;
+  }
+
+
+
 
   bool _isIncomeType(String token) {
     const defaultIncomeKeywords = ["수입", "입금", "월급", "환불"];
@@ -533,35 +599,82 @@ DateTime? _parseDate(dynamic input) {
     return false;
   }
 
+/// 문장에서 결제수단(카드번호 BIN 식별 또는 키워드 매칭)을 감지하여 
+/// 최종 결제수단 Key와 문장에서 지울 매칭 텍스트를 함께 반환
+({String payMethod, String matchedText})? _matchPayMethod(String text) {
+  if (text.trim().isEmpty) return null;
 
-  String? _matchPayMethod(String token) {
-    if (token.trim().isEmpty) return null;
+  // -------------------------------------------------------------
+  // [A] 카드번호 패턴 감지 시 BIN 조회 처리
+  // -------------------------------------------------------------
+  final cardMatch = _cardNoPattern.firstMatch(text);
+  if (cardMatch != null) {
+    final cardStr = cardMatch.group(0)!;
+    final cleanDigits = cardStr.replaceAll(RegExp(r'[^0-9]'), '');
 
-    // 공백 및 소문자 정제
-    final cleanToken = token.replaceAll(' ', '').toLowerCase();
+    String? issuer;
+    if (cleanDigits.length >= 6) {
+      final bin6 = cleanDigits.substring(0, 6);
+      issuer = _binData[bin6]?['전표인자명']?.toString();
+    }
 
-    for (var entry in _payMethods.entries) {
-      final String mainMethod = entry.key; // 예: "체크카드"
-      final dynamic keywords = entry.value;
+    // BIN 조회가 성공한 경우 해당 발급사명이 속한 대표 Key("신용카드" 등) 탐색
+    if (issuer != null && issuer.isNotEmpty) {
+      for (var entry in _payMethods.entries) {
+        final mainKey = entry.key;
+        final keywords = entry.value;
 
-      // 1. 최상단 Key("체크카드", "신용카드" 등)가 토큰에 포함되어 있는지 확인
-      if (cleanToken.contains(mainMethod.toLowerCase())) {
-        return mainMethod; // 바로 "체크카드" 리턴!
+        if (keywords is List && keywords.contains(issuer)) {
+          return (payMethod: mainKey, matchedText: cardStr);
+        }
       }
+      // 매칭되는 대표 Key가 없으면 전표인자명 또는 기본값 사용
+      return (payMethod: issuer, matchedText: cardStr);
+    }
 
-      // 2. Value 리스트("카카오뱅크", "토스뱅크" 등) 순회 검사
-      if (keywords is List) {
-        for (var kw in keywords) {
-          final keyword = kw.toString().replaceAll(' ', '').toLowerCase();
-          if (keyword.isNotEmpty && keyword.contains(cleanToken)) {
-            return mainMethod; // 매칭된 최상단 Key 반환
-          }
+    // BIN 조회 실패 시 기본 "신용카드"로 분류하고 카드번호 제거
+    return (payMethod: "신용카드", matchedText: cardStr);
+  }
+
+  // -------------------------------------------------------------
+  // [B] 텍스트 키워드 매칭 (Key 및 Value 순회)
+  // -------------------------------------------------------------
+  // 키워드가 긴 순서대로 정렬하여 "KB국민카드"가 "카드"보다 먼저 매칭되도록 처리
+  final List<({String mainKey, String keyword})> searchList = [];
+
+  for (var entry in _payMethods.entries) {
+    final String mainKey = entry.key; // 예: "체크카드", "신용카드"
+    
+    // Key 자체도 검색 대상으로 추가
+    searchList.add((mainKey: mainKey, keyword: mainKey));
+
+    // Value 리스트 단어 추가
+    if (entry.value is List) {
+      for (var kw in (entry.value as List)) {
+        final keywordStr = kw.toString().trim();
+        if (keywordStr.isNotEmpty) {
+
+          searchList.add((mainKey: mainKey, keyword: keywordStr));
         }
       }
     }
-
-    return null;
   }
+
+  // 매칭 우선순위를 위해 키워드 길이가 긴 순으로 정렬
+  searchList.sort((a, b) => b.keyword.length.compareTo(a.keyword.length));
+
+  for (var item in searchList) {
+    if (text.contains(item.keyword)) {
+      return (
+        payMethod: item.mainKey,      // 최종 리턴되는 Key ("신용카드", "체크카드" 등)
+        matchedText: item.keyword,    // 문장에서 삭제할 단어 ("신한카드", "카카오뱅크" 등)
+      );
+    }
+  }
+
+  return null;
+}
+
 
 
 

@@ -1,12 +1,9 @@
-import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:google_sign_in/google_sign_in.dart';
 import 'package:googleapis/sheets/v4.dart' as sheets;
 import 'package:googleapis_auth/googleapis_auth.dart' as auth;
-
+import 'package:household_ledger/services/utils/app_logger.dart';
 import 'package:household_ledger/services/auth/google_auth.dart';
-import 'package:household_ledger/services/ledger_ingestion/ledger_item.dart';
-import 'package:household_ledger/services/google_drive/google_spreadsheet.dart';
 import 'package:household_ledger/services/ledger_ingestion/entry_input_service.dart';
 import 'package:household_ledger/services/ledger_ingestion/text_parser_service.dart';
 
@@ -132,9 +129,13 @@ class LedgerIngestionUIState extends State<LedgerIngestionUI> {
     );
   }
 
+
+
+
   /// 🚀 전송 이벤트 전용 함수
   Future<void> submitLedgerEntry([String? text]) async {
     final rawInput = text ?? _inputController.text;
+    AppLogger.i("rawInput: '$rawInput'");
 
     if (rawInput.trim().isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -153,16 +154,21 @@ class LedgerIngestionUIState extends State<LedgerIngestionUI> {
 
       // 2. 서비스 인스턴스 생성
       final sheetsApi = sheets.SheetsApi(authClient);
-      final sheetService = HouseholdSheetService();
       final textParserService = TextParserService();
 
       await textParserService.init();
 
-      // 3. 연도별 가계부 시트 ID 가져오기
-      final spreadsheetId = await sheetService.setupLedgerSpreadsheet(authClient);
-
-      // 4. 입력 텍스트 전처리/분할
+      // 3. 입력 텍스트 전처리/분할
       final List<String> lines = textParserService.parseInputLines(rawInput);
+
+      if (lines.isEmpty) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('처리할 수 있는 텍스트가 없습니다.')),
+          );
+        }
+        return;
+      }
 
       int successCount = 0;
       int duplicateCount = 0;
@@ -177,17 +183,19 @@ class LedgerIngestionUIState extends State<LedgerIngestionUI> {
         final Map<String, dynamic> itemMap = textParserService.parseSingleLineToMap(lines.first);
 
         final ParseResult result = await singleEntryService.appendParseSingleLine(
+         authClient,
           sheetsApi,
-          spreadsheetId,
           itemMap,
         );
 
         if (result == ParseResult.success) {
-          successCount++;
-        } else if (result == ParseResult.duplicate) duplicateCount++;
-        else failCount++;
-
-      } else if (lines.length > 1) {
+          successCount = 1;
+        } else if (result == ParseResult.duplicate) {
+          duplicateCount = 1;
+        } else {
+          failCount = 1;
+        }
+      } else {
         // 2줄 이상 다중 캐시/배치 처리 (429 API 쿼터 에러 방지)
         final multiEntryService = MultiEntryService();
 
@@ -197,8 +205,10 @@ class LedgerIngestionUIState extends State<LedgerIngestionUI> {
             .toList();
 
         final resultMap = await multiEntryService.appendParseMultiLines(
+          authClient,
+
+          
           sheetsApi,
-          spreadsheetId,
           itemMaps,
         );
 
@@ -207,7 +217,7 @@ class LedgerIngestionUIState extends State<LedgerIngestionUI> {
         failCount = resultMap[ParseResult.fail] ?? 0;
       }
 
-      // 5. 성공 시 입력창 초기화 및 결과 팝업 표시
+      // 4. 성공 시 입력창 초기화 및 결과 팝업 표시
       if (mounted) {
         if (successCount > 0) {
           _inputController.clear();
@@ -243,6 +253,8 @@ class LedgerIngestionUIState extends State<LedgerIngestionUI> {
       }
     }
   }
+
+
 
   @override
   Widget build(BuildContext context) {
