@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:google_sign_in/google_sign_in.dart';
+import 'package:intl/intl.dart';
 import 'package:googleapis/sheets/v4.dart' as sheets;
 import 'package:googleapis_auth/googleapis_auth.dart' as auth;
 import 'package:household_ledger/services/utils/app_logger.dart';
@@ -19,11 +20,53 @@ class LedgerIngestionUI extends StatefulWidget {
 class LedgerIngestionUIState extends State<LedgerIngestionUI> {
   final TextEditingController _inputController = TextEditingController();
   bool _isSubmitting = false;
+  String _previousText = '';
+  int _lastTypedSlashIndex = -1; // 💡 마지막으로 타이핑된 '/'의 인덱스 추적
+  
+  @override
+  void initState() {
+    super.initState();
+    _inputController.addListener(_onTextChanged);
+  }
 
   @override
   void dispose() {
+    _inputController.removeListener(_onTextChanged);
     _inputController.dispose();
     super.dispose();
+  }
+
+  void _onTextChanged() {
+    final currentText = _inputController.text;
+    final selection = _inputController.selection;
+    final lengthChange = currentText.length - _previousText.length;
+
+    // 💡 사용자가 키보드로 한 글자씩 입력하는 경우만 감지
+    if (lengthChange == 1 && selection.baseOffset > 0) {
+      final typedChar = currentText[selection.baseOffset - 1];
+
+      if (typedChar == '/' && _lastTypedSlashIndex == selection.baseOffset - 2) {
+        // 두 번째 '/'가 연속으로 입력된 경우: 날짜로 변환
+        final formattedDateWithSpace = '${DateFormat('yyyy/MM/dd').format(DateTime.now())} ';
+        final newText = currentText.substring(0, selection.baseOffset - 2) + formattedDateWithSpace + currentText.substring(selection.baseOffset);
+        final newOffset = selection.baseOffset - 2 + formattedDateWithSpace.length;
+
+        _inputController.value = _inputController.value.copyWith(text: newText, selection: TextSelection.collapsed(offset: newOffset));
+        _lastTypedSlashIndex = -1; // 상태 초기화
+      } else if (typedChar == '/') {
+        // 첫 번째 '/'가 입력된 경우: 위치만 기록
+        _lastTypedSlashIndex = selection.baseOffset - 1;
+      } else {
+        // 다른 문자가 입력된 경우: 상태 초기화
+        _lastTypedSlashIndex = -1;
+      }
+    } else {
+      // 붙여넣기, 삭제 등 다른 종류의 변경 시 상태 초기화
+      _lastTypedSlashIndex = -1;
+    }
+
+    // 다음 비교를 위해 현재 텍스트를 저장
+    _previousText = _inputController.text;
   }
 
   /// 🚀 GoogleAuthManager를 통해 크로스 플랫폼 안전한 AuthClient 수급
@@ -277,7 +320,7 @@ class LedgerIngestionUIState extends State<LedgerIngestionUI> {
               controller: _inputController,
               maxLines: 5,
               decoration: InputDecoration(
-                hintText: '가계부 내역을 입력하세요.\n예: 2026/1/3 10,600 쿠팡(쿠페이)',
+                hintText: '가계부 내역을 입력하세요.\n예: 2026/1/3 10,600 쿠팡(쿠페이)\n //을 입력하시면 날짜가 제공 됩니다.',
                 border: OutlineInputBorder(
                   borderRadius: BorderRadius.circular(8.0),
                 ),
