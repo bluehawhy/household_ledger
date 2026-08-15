@@ -16,7 +16,7 @@ enum ParseResult {
 
 /// 단일 입력을 Google Sheets에 전송하는 입력 서비스
 class SingleEntryService {
-  final HouseholdSheetService sheetService = HouseholdSheetService();
+  final LedgerDataService sheetService = LedgerDataService();
 
   Future<ParseResult> appendParseSingleLine(
     AuthClient authClient,
@@ -33,7 +33,7 @@ class SingleEntryService {
       final String sheetName = "${item.date.month}월";
 
       // 💡 setupLedgerSpreadsheetForYear 호출로 캐시 확인 및 생성/가져오기 동시 처리
-      final String spreadsheetId = await sheetService.setupLedgerSpreadsheetForYear(authClient, year);
+      final String spreadsheetId = await sheetService.sheetSetupService.setupLedgerSpreadsheetForYear(authClient, year);
 
       List<List<dynamic>> existingRows = [];
       try {
@@ -71,7 +71,7 @@ class SingleEntryService {
 
 /// 다중 입력을 Google Sheets에 전송하는 입력 서비스
 class MultiEntryService {
-  final HouseholdSheetService sheetService = HouseholdSheetService();
+  final LedgerDataService sheetService = LedgerDataService();
 
   Future<Map<ParseResult, int>> appendParseMultiLines(
     AuthClient authClient,
@@ -113,7 +113,7 @@ class MultiEntryService {
       final Map<String, List<LedgerItem>> itemsBySheet = yearEntry.value;
 
       // 💡 연도에 맞는 spreadsheetId 가져오기 (없으면 자동 생성)
-      final String spreadsheetId = await sheetService.setupLedgerSpreadsheetForYear(authClient, year);
+      final String spreadsheetId = await sheetService.sheetSetupService.setupLedgerSpreadsheetForYear(authClient, year);
 
       // 3. 월 단위 시트별 처리
       for (final sheetEntry in itemsBySheet.entries) {

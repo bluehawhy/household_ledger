@@ -90,24 +90,10 @@ class LedgerCacheManager {
 // ============================================================================
 // 📊 가계부 구글 드라이브 및 스프레드시트 통합 관리 서비스 클래스
 // ============================================================================
-
-class HouseholdSheetService {
+class LedgerSheetSetupService {
   final CategoryMapper categoryMapper = CategoryMapper();
   final LedgerCacheManager cacheManager = LedgerCacheManager();
-
-  // 💡 [추가] 연도별 시트 생성/조회 비동기 작업을 기록하는 Map (락 역할)
   final Map<int, Future<String>> _spreadsheetInitFutures = {};
-
-  /// 통합 헤더 정의
-  static const List<String> defaultHeader = [
-    "날짜",
-    "거래유형",
-    "거래 수단",
-    "분류",
-    "내용",
-    "금액",
-    "메모"
-  ];
 
   /// 서비스 초기화 시 JSON 설정 파일 및 구글 드라이브 시트 목록 사전 스캔
   Future<void> init(
@@ -117,15 +103,6 @@ class HouseholdSheetService {
     await categoryMapper.loadCategoryJson(filePath);
     final driveApi = drive.DriveApi(client);
     await cacheManager.initializeAllSheets(driveApi);
-  }
-
-  // ==========================================================================
-  // 🟢 [기능 A] 파일 및 시트 구조 생성 및 ID 관리
-  // ==========================================================================
-
-  /// 현재 연도 기준 가계부 설정
-  Future<String> setupLedgerSpreadsheet(AuthClient client) async {
-    return await setupLedgerSpreadsheetForYear(client, DateTime.now().year);
   }
 
   /// 특정 연도 가계부 설정 (캐시 체크 및 동시성 락 적용)
@@ -138,11 +115,11 @@ class HouseholdSheetService {
 
     // 2. 💡 이미 해당 연도의 시트 확인/생성이 진행 중이라면 기존 Future가 완료될 때까지 대기
     if (_spreadsheetInitFutures.containsKey(year)) {
-      AppLogger.i("💡 [$year년] 시트 확인/생성 작업이 이미 진행 중입니다. 완료를 기다립니다.");
+      AppLogger.i("💡 [$year년] 시트 확인/생성 작업이 이미 진행 중이므로 완료를 기다립니다.");
       return await _spreadsheetInitFutures[year]!;
     }
 
-    // 3. 진행 중인 Future 생성 및 등록
+    // 3. 진행 중인 Future 생성 및 등록 (동시성 제어)
     final initFuture = _setupLedgerSpreadsheetForYearInternal(client, year);
     _spreadsheetInitFutures[year] = initFuture;
 
@@ -155,7 +132,6 @@ class HouseholdSheetService {
     }
   }
 
-  // 💡 기존의 setupLedgerSpreadsheetForYear 로직을 별도 내부 메서드로 분리
   Future<String> _setupLedgerSpreadsheetForYearInternal(AuthClient client, int year) async {
     if (!categoryMapper.isLoaded) {
       await categoryMapper.loadCategoryJson();
@@ -341,6 +317,16 @@ class HouseholdSheetService {
       ),
     );
 
+    // 4. 월별 시트 헤더 정의
+    const List<String> defaultHeader = [
+      "날짜",
+      "거래유형",
+      "거래 수단",
+      "분류",
+      "내용",
+      "금액",
+      "메모"
+    ];
     // 4. 1~12월 시트 기본 통합 헤더 생성 (A1:G1)
     for (int month = 1; month <= 12; month++) {
       final sheetName = '$month월';
@@ -359,6 +345,25 @@ class HouseholdSheetService {
 
     await sheetsApi.spreadsheets.values.batchUpdate(request, spreadsheetId);
     AppLogger.i("  └ ✅ Overview 통계표 및 통합 헤더 작성 완료!");
+  }
+}
+
+class LedgerDataService {
+  final LedgerSheetSetupService sheetSetupService = LedgerSheetSetupService();
+  final CategoryMapper categoryMapper = CategoryMapper();
+
+  /// 통합 헤더 정의
+  static const List<String> defaultHeader = [
+    "날짜",
+    "거래유형",
+    "거래 수단",
+    "분류",
+    "내용",
+    "금액",
+    "메모"
+  ];
+  Future<void> init(AuthClient client) async {
+    await sheetSetupService.init(client);
   }
 
   // ==========================================================================
@@ -380,7 +385,7 @@ class HouseholdSheetService {
       final sheetsApi = sheets.SheetsApi(client);
 
       // 🔹 [수정] 항목의 연도(item.date.year)를 기반으로 해당 연도의 가계부 파일 ID를 조회/자동 생성합니다.
-      final targetSpreadsheetId = await setupLedgerSpreadsheetForYear(client, item.date.year);
+      final targetSpreadsheetId = await sheetSetupService.setupLedgerSpreadsheetForYear(client, item.date.year);
 
       item = item.copyWith(
         category: categoryMapper.getCategory(
@@ -457,7 +462,7 @@ class HouseholdSheetService {
 
     final targetSpreadsheetId = (spreadsheetId != null && spreadsheetId.isNotEmpty)
         ? spreadsheetId
-        : await setupLedgerSpreadsheetForYear(client, oldItem.date.year);
+        : await sheetSetupService.setupLedgerSpreadsheetForYear(client, oldItem.date.year);
 
     newItem = newItem.copyWith(
       category: categoryMapper.getCategory(
@@ -654,7 +659,7 @@ class HouseholdSheetService {
       final sheetName = "${month}월";
 
       // 💡 기존 메서드 이름인 setupLedgerSpreadsheetForYear 로 변경
-      final String spreadsheetId = await setupLedgerSpreadsheetForYear(client, year);
+      final String spreadsheetId = await sheetSetupService.setupLedgerSpreadsheetForYear(client, year);
 
       AppLogger.i("🚀 [$year년 $sheetName] ${groupItems.length}개 항목 처리 시작 (Spreadsheet ID: $spreadsheetId)");
 
@@ -821,7 +826,7 @@ class HouseholdSheetService {
   }) async {
     final sheetsApi = sheets.SheetsApi(client);
 
-    final targetSpreadsheetId = await setupLedgerSpreadsheetForYear(client, year);
+    final targetSpreadsheetId = await sheetSetupService.setupLedgerSpreadsheetForYear(client, year);
 
     final monthSheetName = '$month월';
     final range = "'$monthSheetName'!A1:G1000";
@@ -894,7 +899,7 @@ class HouseholdSheetService {
     final sheetsApi = sheets.SheetsApi(client);
 
     // 연도에 맞는 스프레드시트 ID 가져오기
-    final targetSpreadsheetId = await setupLedgerSpreadsheetForYear(client, year);
+    final targetSpreadsheetId = await sheetSetupService.setupLedgerSpreadsheetForYear(client, year);
 
     final monthSheetName = '$month월';
     final range = "'$monthSheetName'!A1:G1000";
@@ -960,3 +965,9 @@ class HouseholdSheetService {
     }
   }
 }
+
+/// 기존 HouseholdSheetService는 Deprecated 처리하거나,
+/// 두 서비스를 조합하여 사용하는 Facade 패턴으로 유지할 수 있습니다.
+/// 여기서는 간단하게 두 클래스를 직접 사용하도록 변경하는 것을 가정합니다.
+@Deprecated('Use LedgerSheetSetupService and LedgerDataService instead')
+class HouseholdSheetService extends LedgerDataService {}

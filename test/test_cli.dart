@@ -18,14 +18,14 @@ void main() async {
     'https://www.googleapis.com/auth/spreadsheets',
   ]);
 
-  final sheetService = HouseholdSheetService();
+  final sheetService = LedgerDataService();
 
   try {
     // 2. AuthClient 획득
     final client = await authService.getAuthenticatedClient();
     print("🔐 Google OAuth 인증 성공!");
 
-    final spreadsheetId = await sheetService.setupLedgerSpreadsheet(client);
+    final spreadsheetId = await sheetService.sheetSetupService.setupLedgerSpreadsheetForYear(client, DateTime.now().year);
     print("📄 연결된 Spreadsheet ID: $spreadsheetId");
 
  // 💡 시트에 기록된 데이터와 토씨 하나 안 틀리고 똑같이 매칭시킵니다.
