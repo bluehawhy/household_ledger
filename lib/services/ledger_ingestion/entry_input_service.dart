@@ -168,6 +168,7 @@ class MultiEntryService {
         }
 
         final List<LedgerItem> itemsToAppend = [];
+        final Set<String> batchKeys = {}; // 💡 [추가] 현재 배치 내 중복을 추적하기 위한 Set
 
         // 3-3. 입력 항목 중복 비교
         for (final item in pendingItems) {
@@ -178,12 +179,12 @@ class MultiEntryService {
 
           final itemKey = "${dateDigits}_${targetDesc}_$targetAmount";
 
-          if (existingKeys.contains(itemKey)) {
+          if (existingKeys.contains(itemKey) || batchKeys.contains(itemKey)) {
             duplicateCount++;
             AppLogger.i("🔁 [중복 스킵] [$year년 $sheetName] $dateDigits | $targetDesc | ${item.amount}원");
           } else {
             itemsToAppend.add(item);
-            existingKeys.add(itemKey);
+            batchKeys.add(itemKey); // 💡 현재 배치에서 처리한 항목 키를 batchKeys에 추가
           }
         }
 

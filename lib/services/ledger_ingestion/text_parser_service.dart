@@ -213,7 +213,7 @@ class TextParserService {
             .map((line) => _preCleanInput(line).trim())
             .where((line) => line.isNotEmpty)
             .toList();
-      
+
       case InputType.txt:
         // TXT: 앵커 기반으로 문장 분할 진행
         return _parseTxtLinesByAnchors(rawInput);
@@ -350,7 +350,7 @@ String _cleanRemainingDescription(String text) {
     if (rawInput.trim().isEmpty) return '';
     return _config.cleanText(rawInput);
   }
-  
+
   /// 입력된 텍스트의 타입을 자동 감지하는 헬퍼 함수
   InputType _detectInputType(String rawInput) {
     // \r 제거 후 줄 단위 분리
@@ -364,14 +364,14 @@ String _cleanRemainingDescription(String text) {
     // 1. Excel (Tab 구분) 규칙성 검사
     final tabCounts = nonEmplyLines.map((l) => '\t'.allMatches(l).length).toList();
     final firstTabCount = tabCounts.first;
-    if (firstTabCount > 0 && tabCounts.every((count) => count == firstTabCount)) {
+    if (nonEmplyLines.length > 1 && firstTabCount > 0 && tabCounts.every((count) => count == firstTabCount)) {
       return InputType.excel;
     }
 
     // 2. CSV (Comma 구분) 규칙성 검사
     final csvCounts = nonEmplyLines.map((l) => ','.allMatches(l).length).toList();
     final firstCsvCount = csvCounts.first;
-    if (firstCsvCount > 0 && csvCounts.every((count) => count == firstCsvCount)) {
+    if (nonEmplyLines.length > 1 && firstCsvCount > 0 && csvCounts.every((count) => count == firstCsvCount)) {
       return InputType.csv;
     }
 
@@ -386,97 +386,54 @@ String _cleanRemainingDescription(String text) {
     TransactionParserConfig? config,
   }) {
     if (text.trim().isEmpty) return [];
-
-    final dateRegex = RegExp(
-      r'(?:\b\d{4}[./-]\d{1,2}[./-]\d{1,2}\b|\b\d{1,2}[./-]\d{1,2}\b)',
-    );
-    final amountRegex = RegExp(
-      r'(?:\b\d{1,3}(?:,\d{3})+원?\b|\b\d{3,}원\b|\$\d+(?:\.\d{2})?)',
-    );
-
-    // =========================================================================
-    // 1단계: 줄바꿈 단위를 유지하며 config 기반 무시 패턴/키워드 제거
-    // =========================================================================
-    final rawLines = text.split(RegExp(r'[\r\n]+'));
-    final List<String> cleanedLines = [];
-
-    for (final rawLine in rawLines) {
-      String line = rawLine;
-
-      if (config != null) {
-        // 잔액, 승인번호 등 설정된 정규식 패턴 제거
-        for (final pattern in config.ignoredPatterns) {
-          line = line.replaceAll(pattern, ' ');
+  
+    final List<String> resultLines = [];
+    String remainingText = text.replaceAll('\n', ' ').replaceAll('\r', ' ');
+  
+    while (remainingText.trim().isNotEmpty) {
+      String originalTextForLoop = remainingText;
+  
+      // 1. 날짜와 금액 파싱 시도
+      final dateResult = _parseDate(remainingText);
+      final amountResult = _parseAmount(remainingText);
+  
+      // 2. 날짜와 금액이 모두 있어야 유효한 거래로 간주
+      if (dateResult == null || amountResult == null) {
+        break; // 더 이상 파싱할 거래가 없으면 루프 종료
+      }
+  
+      // 3. 현재 루프에서 처리할 텍스트의 끝 지점(boundary) 찾기
+      // 다음 거래의 시작 날짜 바로 앞까지를 현재 거래의 범위로 설정
+      String tempText = remainingText.replaceFirst(dateResult.matchedText, 'DATE_HOLDER');
+      final nextDateMatch = _fullDatePattern.firstMatch(tempText);
+      
+      int endBoundary = originalTextForLoop.length;
+      if (nextDateMatch != null) {
+        // 원본 텍스트에서 다음 날짜의 시작 인덱스를 찾음
+        final nextDateStartIndex = originalTextForLoop.indexOf(nextDateMatch.group(0)!, dateResult.matchedText.length);
+        if(nextDateStartIndex != -1) {
+          endBoundary = nextDateStartIndex;
         }
-        // 무시 단어 제거
-        for (final word in config.ignoredWords) {
-          line = line.replaceAll(word, ' ');
-        }
       }
-
-      line = line.replaceAll(RegExp(r'\s+'), ' ').trim();
-      if (line.isNotEmpty) {
-        cleanedLines.add(line);
-      }
+  
+      // 4. 현재 거래 라인 추출 및 남은 텍스트 업데이트
+      String currentLine = originalTextForLoop.substring(0, endBoundary);
+      remainingText = originalTextForLoop.substring(endBoundary);
+  
+      // 5. 추출된 라인 추가
+      resultLines.add(currentLine.trim());
     }
-
-    if (cleanedLines.isEmpty) return [];
-
-    // =========================================================================
-    // 2단계: 줄바꿈 기준으로 '날짜+금액 완성 여부'에 따른 그룹 분할
-    // =========================================================================
-    final List<List<String>> transactionGroups = [];
-    List<String> currentGroup = [];
-
-    for (int i = 0; i < cleanedLines.length; i++) {
-      final line = cleanedLines[i];
-
-      // 현재 수집된 그룹의 텍스트와 완성도(날짜+금액) 체크
-      final groupText = currentGroup.join(' ');
-      final hasDateInGroup = dateRegex.hasMatch(groupText);
-      final hasAmountInGroup = amountRegex.hasMatch(groupText);
-      final isGroupComplete = hasDateInGroup && hasAmountInGroup;
-
-      // 남은 줄들에 다른 거래(날짜/금액)가 아직 존재하는지 체크
-      final remainingText = cleanedLines.sublist(i).join(' ');
-      final remainingHasDate = dateRegex.hasMatch(remainingText);
-      final remainingHasAmount = amountRegex.hasMatch(remainingText);
-
-      // 💡 [핵심 분할 조건]
-      // 이전 그룹이 (날짜+금액)을 다 갖추어 완성이 되었고,
-      // 남아있는 뒤쪽 텍스트에 새로운 거래(날짜/금액)가 들어있다면 -> 새로 읽은 줄부터 새 그룹 시작!
-      if (isGroupComplete && (remainingHasDate || remainingHasAmount)) {
-        transactionGroups.add(List.from(currentGroup));
-        currentGroup.clear();
-      }
-
-      currentGroup.add(line);
-    }
-
-    // 마지막 모인 그룹 추가
-    if (currentGroup.isNotEmpty) {
-      transactionGroups.add(currentGroup);
-    }
-
-    // =========================================================================
-    // 3단계: 그룹별 문장 결합
-    // =========================================================================
-    final List<String> resultLines = transactionGroups
-        .map((g) => g.join(' ').replaceAll(RegExp(r'\s+'), ' ').trim())
-        .where((s) => s.isNotEmpty)
-        .toList();
 
     AppLogger.i("🔹 [TXT 전용] 완성도 기반 분할 결과 (${resultLines.length}개):");
     for (int idx = 0; idx < resultLines.length; idx++) {
       AppLogger.i("   Line ${idx + 1}: \"${resultLines[idx]}\"");
     }
-
     return resultLines;
   }
 
 
 
-  /// 💡 [날짜 단독 파싱 함수] 
+  /// 💡 [날짜 단독 파싱 함수]
   ({DateTime date, String matchedText})? _parseDate(dynamic input) {
     if (input is! String) return null;
 
@@ -525,7 +482,7 @@ String _cleanRemainingDescription(String text) {
     if (text.trim().isEmpty) return null;
 
     // 1. '원'이 포함된 금액 우선 탐색 (천 단위 쉼표 허용)
-    // 예: 4,000원, 56000 원    
+    // 예: 4,000원, 56000 원
     final wonMatches = _amountPattern.allMatches(text);
 
     for (final match in wonMatches) {
@@ -599,7 +556,7 @@ String _cleanRemainingDescription(String text) {
     return false;
   }
 
-/// 문장에서 결제수단(카드번호 BIN 식별 또는 키워드 매칭)을 감지하여 
+/// 문장에서 결제수단(카드번호 BIN 식별 또는 키워드 매칭)을 감지하여
 /// 최종 결제수단 Key와 문장에서 지울 매칭 텍스트를 함께 반환
 ({String payMethod, String matchedText})? _matchPayMethod(String text) {
   if (text.trim().isEmpty) return null;
@@ -644,7 +601,7 @@ String _cleanRemainingDescription(String text) {
 
   for (var entry in _payMethods.entries) {
     final String mainKey = entry.key; // 예: "체크카드", "신용카드"
-    
+
     // Key 자체도 검색 대상으로 추가
     searchList.add((mainKey: mainKey, keyword: mainKey));
 
@@ -718,7 +675,7 @@ String _cleanRemainingDescription(String text) {
             }
           }
         }
-      } 
+      }
       // B. 하위 구조가 List인 경우 (1계층: 식비 -> [키워드들])
       else if (subContent is List) {
         for (var keyword in subContent) {

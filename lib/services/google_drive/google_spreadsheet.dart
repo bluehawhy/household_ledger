@@ -40,7 +40,7 @@ class LedgerCacheManager {
         }
       }
     }
-    AppLogger.i("✅ [LedgerCacheManager] 연도별 시트 캐시 완료: $_yearToSpreadsheetIdMap");
+    AppLogger.i("연도별 시트 캐시 완료: $_yearToSpreadsheetIdMap");
   }
 
   /// 특정 연도의 시트 ID 가져오기 (캐시에 존재하면 API 호출 없이 반환)
@@ -574,7 +574,10 @@ class HouseholdSheetService {
       for (final item in items) {
         if (item.amount <= 0) continue;
 
-        if (_checkDuplicate(existingRows, item)) continue;
+        if (_checkDuplicate(existingRows, item)) {
+          AppLogger.i("⚠️ [중복 패스] [${item.formattedDate}] '${item.description}' (${item.amount}원) 내역이 이미 존재합니다.");
+          continue;
+        }
 
         final isIncome = item.type == TransactionType.income;
         newRows.add([
@@ -957,6 +960,3 @@ class HouseholdSheetService {
     }
   }
 }
-
-
-
