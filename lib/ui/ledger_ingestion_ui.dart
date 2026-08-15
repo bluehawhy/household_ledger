@@ -45,7 +45,8 @@ class LedgerIngestionUIState extends State<LedgerIngestionUI> {
     if (lengthChange == 1 && selection.baseOffset > 0) {
       final typedChar = currentText[selection.baseOffset - 1];
 
-      if (typedChar == '/' && _lastTypedSlashIndex == selection.baseOffset - 2) {
+      // 💡 [수정] _lastTypedSlashIndex가 유효한 인덱스일 때만 연속 입력을 확인
+      if (typedChar == '/' && _lastTypedSlashIndex != -1 && _lastTypedSlashIndex == selection.baseOffset - 2) {
         // 두 번째 '/'가 연속으로 입력된 경우: 날짜로 변환
         final formattedDateWithSpace = '${DateFormat('yyyy/MM/dd').format(DateTime.now())} ';
         final newText = currentText.substring(0, selection.baseOffset - 2) + formattedDateWithSpace + currentText.substring(selection.baseOffset);
@@ -143,9 +144,10 @@ class LedgerIngestionUIState extends State<LedgerIngestionUI> {
           actions: [
             TextButton(
               onPressed: () {
-                Navigator.of(dialogContext).pop();
+                Navigator.of(dialogContext).pop(); // 1. 다이얼로그 닫기
+                // 2. 💡 성공 시에만 이전 화면(Overview)으로 복귀
                 if (isSuccess) {
-                  _inputController.clear();
+                  Navigator.of(context).pop();
                 }
               },
               child: const Text('확인', style: TextStyle(fontSize: 16)),

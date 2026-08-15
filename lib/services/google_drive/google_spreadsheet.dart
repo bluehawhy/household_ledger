@@ -447,10 +447,14 @@ class LedgerDataService {
     required AuthClient client,
     required LedgerItem oldItem,
     required LedgerItem newItem,
+
     String? spreadsheetId,
   }) async {
-    if (newItem.amount <= 0) {
-      AppLogger.i("⚠️ [0원 패스] 수정하려는 금액이 0원 이하입니다.");
+    AppLogger.i("[oldItem]: $oldItem");
+    AppLogger.i("[newItem]: $newItem");
+    if (newItem.amount == 0) {
+      AppLogger.i("⚠️ [0원 패스] 수정하려는 금액이 0원입니다.");
+      
       return false;
     }
 

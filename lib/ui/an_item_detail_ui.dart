@@ -34,6 +34,7 @@ class _AnItemDetailUIState extends State<AnItemDetailUI> {
   late TextEditingController _amountController;
   late TextEditingController _payMethodController;
   late TextEditingController _categoryController;
+  late TextEditingController _memoController;
   late DateTime _selectedDate;
 
   @override
@@ -47,6 +48,7 @@ class _AnItemDetailUIState extends State<AnItemDetailUI> {
     _amountController = TextEditingController(text: (widget.item.amount ?? 0).toInt().toString());
     _payMethodController = TextEditingController(text: widget.item.payMethod ?? '');
     _categoryController = TextEditingController(text: widget.item.category ?? '');
+    _memoController = TextEditingController(text: widget.item.memo ?? '');
 
     _selectedDate = () {
       if (widget.item.date is DateTime) return widget.item.date as DateTime;
@@ -61,6 +63,7 @@ class _AnItemDetailUIState extends State<AnItemDetailUI> {
     _amountController.dispose();
     _payMethodController.dispose();
     _categoryController.dispose();
+    _memoController.dispose();
     super.dispose();
   }
 
@@ -142,6 +145,8 @@ class _AnItemDetailUIState extends State<AnItemDetailUI> {
         _buildDetailRow('내용/설명', widget.item.description ?? '설명 없음'),
         const Divider(height: 32),
         _buildDetailRow('결제 수단', widget.item.payMethod ?? '-'),
+        const Divider(height: 32),
+        _buildDetailRow('메모', widget.item.memo ?? ''),
       ],
     );
   }
@@ -236,6 +241,11 @@ class _AnItemDetailUIState extends State<AnItemDetailUI> {
           controller: _payMethodController,
           decoration: const InputDecoration(labelText: '결제 수단 (예: 카드, 현금)', border: OutlineInputBorder()),
         ),
+        const SizedBox(height: 16),
+        TextField(
+          controller: _memoController,
+          decoration: const InputDecoration(labelText: '메모', border: OutlineInputBorder()),
+        ),
         const SizedBox(height: 24),
         SizedBox(
           width: double.infinity,
@@ -245,21 +255,24 @@ class _AnItemDetailUIState extends State<AnItemDetailUI> {
               backgroundColor: themeColor,
               shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
             ),
-            onPressed: () {
+            onPressed: () async {
               final updatedData = {
                 'date': _selectedDate,
                 'category': _categoryController.text,
                 'description': _descriptionController.text,
                 'amount': int.tryParse(_amountController.text) ?? 0,
                 'payMethod': _payMethodController.text,
+                'memo': _memoController.text,
               };
 
-              widget.onUpdate?.call(widget.item, updatedData);
+              await widget.onUpdate?.call(widget.item, updatedData);
 
               setState(() => _isEditing = false);
               ScaffoldMessenger.of(context).showSnackBar(
                 const SnackBar(content: Text('수정이 완료되었습니다.')),
               );
+              // 💡 수정 완료 후 상세 페이지 닫고 이전 화면(카테고리 목록)으로 복귀
+              Navigator.of(context).pop(true);
             },
             child: const Text('저장하기', style: TextStyle(fontSize: 16, color: Colors.white, fontWeight: FontWeight.bold)),
           ),
@@ -268,6 +281,3 @@ class _AnItemDetailUIState extends State<AnItemDetailUI> {
     );
   }
 }
-
-
-

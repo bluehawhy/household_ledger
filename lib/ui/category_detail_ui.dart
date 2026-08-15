@@ -1,19 +1,29 @@
 import 'package:flutter/material.dart';
+import 'package:googleapis_auth/googleapis_auth.dart';
 import 'package:intl/intl.dart';
+import 'package:household_ledger/services/google_drive/google_spreadsheet.dart';
+import 'package:household_ledger/services/ledger_ingestion/ledger_item.dart';
 import 'package:household_ledger/ui/an_item_detail_ui.dart';
 
-class CategoryDetailUI extends StatelessWidget {
+class CategoryDetailUI extends StatefulWidget {
   final String categoryName;
-  final List<dynamic> items; // 구글 시트에서 넘어온 원본 객체 리스트
+  final List<LedgerItem> items; // 💡 LedgerItem 객체 리스트로 타입 명시
   final bool isExpense;
+  final AuthClient client;
 
-  CategoryDetailUI({
+  const CategoryDetailUI({
     super.key,
     required this.categoryName,
     required this.items,
     required this.isExpense,
+    required this.client,
   });
 
+  @override
+  State<CategoryDetailUI> createState() => _CategoryDetailUIState();
+}
+
+class _CategoryDetailUIState extends State<CategoryDetailUI> {
   final NumberFormat _currencyFormatter = NumberFormat('#,###');
 
   @override
@@ -21,14 +31,14 @@ class CategoryDetailUI extends StatelessWidget {
     // 선택된 카테고리의 총 금액 계산
     final int totalAmount = items.fold(0, (sum, item) {
       final int amount = (item.amount ?? 0).toInt();
-      return sum + amount;
+      return sum + (amount.isNegative ? -amount : amount);
     });
 
-    final Color themeColor = isExpense ? Colors.redAccent : Colors.blueAccent;
+    final Color themeColor = widget.isExpense ? Colors.redAccent : Colors.blueAccent;
 
     return Scaffold(
       appBar: AppBar(
-        title: Text('$categoryName 상세 내역'),
+        title: Text('${widget.categoryName} 상세 내역'),
       ),
       body: Column(
         children: [
@@ -41,12 +51,12 @@ class CategoryDetailUI extends StatelessWidget {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  isExpense ? '지출 카테고리' : '수입 카테고리',
+                  widget.isExpense ? '지출 카테고리' : '수입 카테고리',
                   style: const TextStyle(fontSize: 14, color: Colors.grey),
                 ),
                 const SizedBox(height: 4),
                 Text(
-                  categoryName,
+                  widget.categoryName,
                   style: const TextStyle(fontSize: 22, fontWeight: FontWeight.bold),
                 ),
                 const SizedBox(height: 8),
@@ -64,16 +74,16 @@ class CategoryDetailUI extends StatelessWidget {
 
           // 세부 내역 리스트
           Expanded(
-            child: items.isEmpty
+            child: widget.items.isEmpty
                 ? const Center(
                     child: Text('해당 카테고리의 내역이 없습니다.'),
                   )
                 : ListView.separated(
                     padding: const EdgeInsets.all(16),
-                    itemCount: items.length,
+                    itemCount: widget.items.length,
                     separatorBuilder: (context, index) => const Divider(height: 1),
                     itemBuilder: (context, index) {
-                      final item = items[index];
+                      final item = widget.items[index];
 
                       // Google Sheet 데이터의 날짜/메모/결제수단/금액 파싱
                       final DateFormat dateFormatter = DateFormat('yyyy-MM-dd');
@@ -96,15 +106,28 @@ class CategoryDetailUI extends StatelessWidget {
                         contentPadding: const EdgeInsets.symmetric(vertical: 8, horizontal: 4),
                         
                         // 클릭 시 AnItemDetailUI 화면으로 이동
-                        onTap: () {
-                          Navigator.push(
+                        onTap: () async {
+                          final bool? dataChanged = await Navigator.push<bool>(
                             context,
                             MaterialPageRoute(
                               builder: (context) => AnItemDetailUI(
                                 item: item,
-                                isExpense: isExpense,
-                                onUpdate: (item, updatedData) {
-                                  // TODO: 수정 시 구글 시트 반영 또는 State 갱신 로직
+                                isExpense: widget.isExpense,
+                                onUpdate: (oldItem, updatedData) async { // 💡 oldItem의 타입이 LedgerItem으로 추론됨
+                                  final service = LedgerDataService();
+                                  final newItem = (oldItem as LedgerItem).copyWith(
+                                    date: updatedData['date'],
+                                    category: updatedData['category'],
+                                    description: updatedData['description'],
+                                    amount: updatedData['amount'],
+                                    payMethod: updatedData['payMethod'],
+                                    memo: updatedData['memo'],
+                                  );
+                                  await service.updateTransaction(
+                                    client: widget.client,
+                                    oldItem: oldItem,
+                                    newItem: newItem,
+                                  );
                                 },
                                 onDelete: (item) {
                                   // TODO: 삭제 시 구글 시트 반영 또는 State 갱신 로직
@@ -112,6 +135,10 @@ class CategoryDetailUI extends StatelessWidget {
                               ),
                             ),
                           );
+                          // 💡 상세 페이지에서 데이터 변경이 있었다면, 현재 화면도 닫고 Overview에 알림
+                          if (dataChanged == true && mounted) {
+                            Navigator.of(context).pop(true);
+                          }
                         },
                         
                         title: Text(
@@ -156,4 +183,8 @@ class CategoryDetailUI extends StatelessWidget {
       ),
     );
   }
+}
+
+extension on _CategoryDetailUIState {
+  List<LedgerItem> get items => widget.items;
 }

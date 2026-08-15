@@ -313,7 +313,7 @@ class TextParserService {
     'category': category ?? "미입력",
   };
 
-  AppLogger.i("✅ [파싱 결과 Map]: $result");
+  AppLogger.i("[Map]: $result");
   return result;
 }
 

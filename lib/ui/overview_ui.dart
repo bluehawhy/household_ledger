@@ -40,8 +40,8 @@ class _OverviewPageState extends State<OverviewPage> {
   String? _errorMessage;
 
   // 💡 원본 아이템 리스트 저장용 변수 추가
-  List<dynamic> _rawExpenses = [];
-  List<dynamic> _rawIncomes = [];
+  List<LedgerItem> _rawExpenses = [];
+  List<LedgerItem> _rawIncomes = [];
 
   int _totalExpense = 0;
   Map<String, int> _expenseCategories = {};
@@ -156,12 +156,12 @@ class _OverviewPageState extends State<OverviewPage> {
 
 
   // 💡 선택한 카테고리 상세 페이지로 이동
-  void _navigateToCategoryDetail({
+  Future<void> _navigateToCategoryDetail({
     required String categoryName,
     required bool isExpense,
     bool isPayMethod = false,
-  }) {
-    List<dynamic> filteredItems = [];
+  }) async {
+    List<LedgerItem> filteredItems = [];
 
     if (isExpense) {
       if (isPayMethod) {
@@ -188,15 +188,21 @@ class _OverviewPageState extends State<OverviewPage> {
       }).toList();
     }
 
-    Navigator.of(context).push(
+    // 💡 상세 페이지로 이동 전 AuthClient 확보
+    final AuthClient client = await _authManager.getClient();
+
+    // 💡 상세 페이지에서 데이터 변경이 있었는지 여부를 반환받음
+    final bool? dataChanged = await Navigator.of(context).push<bool>(
       MaterialPageRoute(
         builder: (context) => CategoryDetailUI(
           categoryName: categoryName,
           items: filteredItems,
           isExpense: isExpense,
+          client: client, // 💡 AuthClient 전달
         ),
       ),
     );
+    if (dataChanged == true) _loadMonthlyData();
   }
 
   Future<void> _navigateToIngestion() async {
