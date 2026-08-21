@@ -1,12 +1,10 @@
+// ledger_ingestion_ui.dart
+
 import 'package:flutter/material.dart';
 import 'package:google_sign_in/google_sign_in.dart';
 import 'package:intl/intl.dart';
-import 'package:googleapis/sheets/v4.dart' as sheets;
-import 'package:googleapis_auth/googleapis_auth.dart' as auth;
-import 'package:household_ledger/services/utils/app_logger.dart';
 import 'package:household_ledger/services/auth/google_auth.dart';
-import 'package:household_ledger/services/ledger_ingestion/entry_input_service.dart';
-import 'package:household_ledger/services/ledger_ingestion/text_parser_service.dart';
+import 'package:household_ledger/services/google_drive/google_spreadsheet.dart'; // 수정한 파일 경로
 
 class LedgerIngestionUI extends StatefulWidget {
   final GoogleSignInAccount googleUser;
@@ -19,10 +17,12 @@ class LedgerIngestionUI extends StatefulWidget {
 
 class LedgerIngestionUIState extends State<LedgerIngestionUI> {
   final TextEditingController _inputController = TextEditingController();
+  final LedgerIngestionService _ingestionService = LedgerIngestionService();
+
   bool _isSubmitting = false;
   String _previousText = '';
-  int _lastTypedSlashIndex = -1; // 💡 마지막으로 타이핑된 '/'의 인덱스 추적
-  
+  int _lastTypedSlashIndex = -1;
+
   @override
   void initState() {
     super.initState();
@@ -41,42 +41,85 @@ class LedgerIngestionUIState extends State<LedgerIngestionUI> {
     final selection = _inputController.selection;
     final lengthChange = currentText.length - _previousText.length;
 
-    // 💡 사용자가 키보드로 한 글자씩 입력하는 경우만 감지
     if (lengthChange == 1 && selection.baseOffset > 0) {
       final typedChar = currentText[selection.baseOffset - 1];
 
-      // 💡 [수정] _lastTypedSlashIndex가 유효한 인덱스일 때만 연속 입력을 확인
-      if (typedChar == '/' && _lastTypedSlashIndex != -1 && _lastTypedSlashIndex == selection.baseOffset - 2) {
-        // 두 번째 '/'가 연속으로 입력된 경우: 날짜로 변환
-        final formattedDateWithSpace = '${DateFormat('yyyy/MM/dd').format(DateTime.now())} ';
-        final newText = currentText.substring(0, selection.baseOffset - 2) + formattedDateWithSpace + currentText.substring(selection.baseOffset);
-        final newOffset = selection.baseOffset - 2 + formattedDateWithSpace.length;
+      if (typedChar == '/' &&
+          _lastTypedSlashIndex != -1 &&
+          _lastTypedSlashIndex == selection.baseOffset - 2) {
+        final formattedDateWithSpace =
+            '${DateFormat('yyyy/MM/dd').format(DateTime.now())} ';
+        final newText = currentText.substring(0, selection.baseOffset - 2) +
+            formattedDateWithSpace +
+            currentText.substring(selection.baseOffset);
+        final newOffset =
+            selection.baseOffset - 2 + formattedDateWithSpace.length;
 
-        _inputController.value = _inputController.value.copyWith(text: newText, selection: TextSelection.collapsed(offset: newOffset));
-        _lastTypedSlashIndex = -1; // 상태 초기화
+        _inputController.value = _inputController.value.copyWith(
+            text: newText,
+            selection: TextSelection.collapsed(offset: newOffset));
+        _lastTypedSlashIndex = -1;
       } else if (typedChar == '/') {
-        // 첫 번째 '/'가 입력된 경우: 위치만 기록
         _lastTypedSlashIndex = selection.baseOffset - 1;
       } else {
-        // 다른 문자가 입력된 경우: 상태 초기화
         _lastTypedSlashIndex = -1;
       }
     } else {
-      // 붙여넣기, 삭제 등 다른 종류의 변경 시 상태 초기화
       _lastTypedSlashIndex = -1;
     }
 
-    // 다음 비교를 위해 현재 텍스트를 저장
     _previousText = _inputController.text;
   }
 
-  /// 🚀 GoogleAuthManager를 통해 크로스 플랫폼 안전한 AuthClient 수급
-  Future<auth.AuthClient> _getAuthClient() async {
-    final authManager = GoogleAuthManager();
-    return await authManager.getClient();
+  /// 🚀 UI 버튼 눌렀을 때 호출되는 핸들러 (UI 조작 및 결과 안내만 담당)
+  Future<void> _handleSubmit() async {
+    final rawInput = _inputController.text;
+
+    if (rawInput.trim().isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('내용을 입력해 주세요.')),
+      );
+      return;
+    }
+
+    setState(() {
+      _isSubmitting = true;
+    });
+
+    try {
+      // 1. AuthClient 준비
+      final authClient = await GoogleAuthManager().getClient();
+
+      // 2. 비즈니스 로직 클래스로 rawInput 넘겨서 실행
+      final LedgerSubmitResult result = await _ingestionService.processAndSubmit(
+        authClient: authClient,
+        rawInput: rawInput,
+      );
+
+      // 3. UI 갱신 및 다이얼로그 표시
+      if (mounted) {
+        if (result.isSuccess && result.success > 0) {
+          _inputController.clear();
+        }
+
+        _showResultDialog(
+          isSuccess: result.isSuccess,
+          total: result.total,
+          success: result.success,
+          duplicate: result.duplicate,
+          fail: result.fail,
+          errorMessage: result.errorMessage,
+        );
+      }
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isSubmitting = false;
+        });
+      }
+    }
   }
 
-  /// 🚀 결과 안내 팝업(Dialog)을 표시하는 함수
   void _showResultDialog({
     required bool isSuccess,
     required int total,
@@ -144,8 +187,7 @@ class LedgerIngestionUIState extends State<LedgerIngestionUI> {
           actions: [
             TextButton(
               onPressed: () {
-                Navigator.of(dialogContext).pop(); // 1. 다이얼로그 닫기
-                // 2. 💡 성공 시에만 이전 화면(Overview)으로 복귀
+                Navigator.of(dialogContext).pop();
                 if (isSuccess) {
                   Navigator.of(context).pop();
                 }
@@ -174,133 +216,6 @@ class LedgerIngestionUIState extends State<LedgerIngestionUI> {
     );
   }
 
-
-
-
-  /// 🚀 전송 이벤트 전용 함수
-  Future<void> submitLedgerEntry([String? text]) async {
-    final rawInput = text ?? _inputController.text;
-    AppLogger.i("rawInput: '$rawInput'");
-
-    if (rawInput.trim().isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('내용을 입력해 주세요.')),
-      );
-      return;
-    }
-
-    setState(() {
-      _isSubmitting = true;
-    });
-
-    try {
-      // 1. 크로스 플랫폼 안전한 _getAuthClient() 호출
-      final authClient = await _getAuthClient();
-
-      // 2. 서비스 인스턴스 생성
-      final sheetsApi = sheets.SheetsApi(authClient);
-      final textParserService = TextParserService();
-
-      await textParserService.init();
-
-      // 3. 입력 텍스트 전처리/분할
-      final List<String> lines = textParserService.parseInputLines(rawInput);
-
-      if (lines.isEmpty) {
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('처리할 수 있는 텍스트가 없습니다.')),
-          );
-        }
-        return;
-      }
-
-      int successCount = 0;
-      int duplicateCount = 0;
-      int failCount = 0;
-
-      // -----------------------------------------------------------------
-      // 🔀 [분기] 1줄이면 SingleEntryService, 2줄 이상이면 MultiEntryService
-      // -----------------------------------------------------------------
-      if (lines.length == 1) {
-        // 1줄 단일 처리
-        final singleEntryService = SingleEntryService();
-        final Map<String, dynamic> itemMap = textParserService.parseSingleLineToMap(lines.first);
-
-        final ParseResult result = await singleEntryService.appendParseSingleLine(
-         authClient,
-          sheetsApi,
-          itemMap,
-        );
-
-        if (result == ParseResult.success) {
-          successCount = 1;
-        } else if (result == ParseResult.duplicate) {
-          duplicateCount = 1;
-        } else {
-          failCount = 1;
-        }
-      } else {
-        // 2줄 이상 다중 캐시/배치 처리 (429 API 쿼터 에러 방지)
-        final multiEntryService = MultiEntryService();
-
-        // 전체 라인을 Map 리스트로 먼저 변환
-        final List<Map<String, dynamic>> itemMaps = lines
-            .map((line) => textParserService.parseSingleLineToMap(line))
-            .toList();
-
-        final resultMap = await multiEntryService.appendParseMultiLines(
-          authClient,
-
-          
-          sheetsApi,
-          itemMaps,
-        );
-
-        successCount = resultMap[ParseResult.success] ?? 0;
-        duplicateCount = resultMap[ParseResult.duplicate] ?? 0;
-        failCount = resultMap[ParseResult.fail] ?? 0;
-      }
-
-      // 4. 성공 시 입력창 초기화 및 결과 팝업 표시
-      if (mounted) {
-        if (successCount > 0) {
-          _inputController.clear();
-        }
-
-        _showResultDialog(
-          isSuccess: true,
-          total: lines.length,
-          success: successCount,
-          duplicate: duplicateCount,
-          fail: failCount,
-        );
-      }
-    } catch (e, stackTrace) {
-      print('❌ 업로드 중 에러 발생: $e');
-      print('📍 스택 트레이스:\n$stackTrace');
-
-      if (mounted) {
-        _showResultDialog(
-          isSuccess: false,
-          total: 0,
-          success: 0,
-          duplicate: 0,
-          fail: 0,
-          errorMessage: e.toString(),
-        );
-      }
-    } finally {
-      if (mounted) {
-        setState(() {
-          _isSubmitting = false;
-        });
-      }
-    }
-  }
-
-
-
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -317,12 +232,12 @@ class LedgerIngestionUIState extends State<LedgerIngestionUI> {
               style: TextStyle(color: Colors.grey[700], fontSize: 13),
             ),
             const SizedBox(height: 12),
-
             TextField(
               controller: _inputController,
               maxLines: 5,
               decoration: InputDecoration(
-                hintText: '가계부 내역을 입력하세요.\n예: 2026/1/3 10,600 쿠팡(쿠페이)\n //을 입력하시면 날짜가 제공 됩니다.',
+                hintText:
+                    '가계부 내역을 입력하세요.\n예: 2026/1/3 10,600 쿠팡(쿠페이)\n //을 입력하시면 날짜가 제공 됩니다.',
                 border: OutlineInputBorder(
                   borderRadius: BorderRadius.circular(8.0),
                 ),
@@ -336,9 +251,8 @@ class LedgerIngestionUIState extends State<LedgerIngestionUI> {
               ),
             ),
             const SizedBox(height: 16),
-
             ElevatedButton.icon(
-              onPressed: _isSubmitting ? null : () => submitLedgerEntry(),
+              onPressed: _isSubmitting ? null : _handleSubmit,
               icon: _isSubmitting
                   ? const SizedBox(
                       width: 20,
@@ -348,7 +262,8 @@ class LedgerIngestionUIState extends State<LedgerIngestionUI> {
                   : const Icon(Icons.send),
               label: Text(
                 _isSubmitting ? '전송 중...' : '전송하기',
-                style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+                style: const TextStyle(
+                    fontSize: 16, fontWeight: FontWeight.bold),
               ),
               style: ElevatedButton.styleFrom(
                 padding: const EdgeInsets.symmetric(vertical: 14),

@@ -2,8 +2,11 @@
 
 import 'package:googleapis/drive/v3.dart' as drive;
 import 'package:googleapis/sheets/v4.dart' as sheets;
+import 'package:googleapis_auth/googleapis_auth.dart' as auth;
 import 'package:googleapis_auth/googleapis_auth.dart';
+import 'package:household_ledger/services/ledger_ingestion/entry_input_service.dart';
 import 'package:household_ledger/services/ledger_ingestion/ledger_item.dart';
+import 'package:household_ledger/services/ledger_ingestion/text_parser_service.dart';
 import 'package:household_ledger/services/utils/app_logger.dart';
 
 
@@ -975,3 +978,109 @@ class LedgerDataService {
 /// 여기서는 간단하게 두 클래스를 직접 사용하도록 변경하는 것을 가정합니다.
 @Deprecated('Use LedgerSheetSetupService and LedgerDataService instead')
 class HouseholdSheetService extends LedgerDataService {}
+
+
+
+
+
+/// 전송 결과를 담아 UI로 전달하는 데이터 클래스
+class LedgerSubmitResult {
+  final bool isSuccess;
+  final int total;
+  final int success;
+  final int duplicate;
+  final int fail;
+  final String? errorMessage;
+
+  LedgerSubmitResult({
+    required this.isSuccess,
+    this.total = 0,
+    this.success = 0,
+    this.duplicate = 0,
+    this.fail = 0,
+    this.errorMessage,
+  });
+}
+
+class LedgerIngestionService {
+  final TextParserService _textParserService = TextParserService();
+
+  /// 🚀 UI로부터 rawText와 AuthClient만 전달받아 파싱 및 Sheets API 전송을 총괄 처리
+  Future<LedgerSubmitResult> processAndSubmit({
+    required auth.AuthClient authClient,
+    required String rawInput,
+  }) async {
+    AppLogger.i("rawInput 처리 시작: '$rawInput'");
+
+    try {
+      final sheetsApi = sheets.SheetsApi(authClient);
+
+      await _textParserService.init();
+
+      // 1. 텍스트 전처리 및 라인 분할
+      final List<String> lines = _textParserService.parseInputLines(rawInput);
+
+      if (lines.isEmpty) {
+        return LedgerSubmitResult(
+          isSuccess: false,
+          errorMessage: '처리할 수 있는 텍스트가 없습니다.',
+        );
+      }
+
+      int successCount = 0;
+      int duplicateCount = 0;
+      int failCount = 0;
+
+      // 2. 단일/다중 입력 분기 처리
+      if (lines.length == 1) {
+        final singleEntryService = SingleEntryService();
+        final Map<String, dynamic> itemMap =
+            _textParserService.parseSingleLineToMap(lines.first);
+
+        final ParseResult result =
+            await singleEntryService.appendParseSingleLine(
+          authClient,
+          sheetsApi,
+          itemMap,
+        );
+
+        if (result == ParseResult.success) {
+          successCount = 1;
+        } else if (result == ParseResult.duplicate) {
+          duplicateCount = 1;
+        } else {
+          failCount = 1;
+        }
+      } else {
+        final multiEntryService = MultiEntryService();
+        final List<Map<String, dynamic>> itemMaps = lines
+            .map((line) => _textParserService.parseSingleLineToMap(line))
+            .toList();
+
+        final resultMap = await multiEntryService.appendParseMultiLines(
+          authClient,
+          sheetsApi,
+          itemMaps,
+        );
+
+        successCount = resultMap[ParseResult.success] ?? 0;
+        duplicateCount = resultMap[ParseResult.duplicate] ?? 0;
+        failCount = resultMap[ParseResult.fail] ?? 0;
+      }
+
+      return LedgerSubmitResult(
+        isSuccess: true,
+        total: lines.length,
+        success: successCount,
+        duplicate: duplicateCount,
+        fail: failCount,
+      );
+    } catch (e, stackTrace) {
+      AppLogger.i('❌ 업로드 중 에러 발생: $e\n$stackTrace');
+      return LedgerSubmitResult(
+        isSuccess: false,
+        errorMessage: e.toString(),
+      );
+    }
+  }
+}
