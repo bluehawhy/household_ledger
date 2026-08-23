@@ -13,6 +13,8 @@ import 'package:household_ledger/services/ledger_ingestion/ledger_item.dart';
 import 'package:household_ledger/ui/ledger_ingestion_ui.dart';
 import 'package:household_ledger/ui/setting_ui.dart';
 import 'package:household_ledger/ui/category_detail_ui.dart';
+import 'package:household_ledger/services/utils/app_logger.dart';
+
 
 class OverviewPage extends StatefulWidget {
   final GoogleSignInAccount googleUser;
@@ -142,7 +144,7 @@ class _OverviewPageState extends State<OverviewPage> {
         });
       }
     } catch (e) {
-      print("데이터 조회 에러: $e");
+      AppLogger.i("데이터 조회 에러: $e");
       if (mounted) {
         setState(() {
           _errorMessage = "인증 세션이 만료되었거나 데이터를 불러올 수 없습니다.\n다시 로그인해 주세요.";

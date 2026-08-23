@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:household_ledger/services/auth/google_auth.dart';
 import 'package:household_ledger/ui/overview_ui.dart';
+import 'package:household_ledger/services/utils/app_logger.dart';
 
 class MainUI extends StatefulWidget {
   const MainUI({super.key});
@@ -20,35 +21,30 @@ class _MainUIState extends State<MainUI> {
     _checkSignInState();
   }
 
-  /// 💡 저장된 세션 확인 및 구글 서버 인증 유효성 실시간 검증
+  /// 💡 저장된 세션 확인 (이전처럼 무겁게 getClient()를 검증하지 않음)
   Future<void> _checkSignInState() async {
     final prefs = await SharedPreferences.getInstance();
     final bool isLoggedInFlag = prefs.getBool('is_logged_in') ?? false;
 
-    try {
-      if (!isLoggedInFlag) {
-        if (mounted) setState(() => _isLoading = false);
-        return;
-      }
+    if (!isLoggedInFlag) {
+      if (mounted) setState(() => _isLoading = false);
+      return;
+    }
 
-      // 1. 기존 세션 Silent Sign-In 시도
+    try {
+      // 1. Silent Sign-In으로 기존 로그인 계정 복원
       var account = _authManager.currentUser ?? await _authManager.signInSilently();
 
-      if (account != null) {
-        // 2. [핵심] 실제 구글 서버 인증 클라이언트 획득 시도 (비밀번호 변경/강제로그아웃 시 에러 발생)
-        final client = await _authManager.getClient();
-        
-        if (mounted) {
-          _navigateToOverview(account);
-          return;
-        }
+      // 2. 계정 정보가 존재한다면 바로 이동! (getClient() 호출 예외로 인한 세션 삭제 방지)
+      if (account != null && mounted) {
+        _navigateToOverview(account);
+        return;
       }
-
-      // 세션이 유효하지 않으면 정리
-      await _clearSession(prefs);
+      
+      // 만약 정말로 계정을 가져올 수 없다면 로그인 플래그만 정리
+      await prefs.setBool('is_logged_in', false);
     } catch (e) {
-      print("세션 만료 또는 무효화된 로그인 (수동 로그인 유도): $e");
-      await _clearSession(prefs);
+      AppLogger.i("자동 로그인 복원 중 오류 발생: $e");
     } finally {
       if (mounted) {
         setState(() => _isLoading = false);
@@ -56,17 +52,11 @@ class _MainUIState extends State<MainUI> {
     }
   }
 
-  Future<void> _clearSession(SharedPreferences prefs) async {
-    await prefs.remove('is_logged_in');
-    try {
-      await _authManager.signOut();
-    } catch (_) {}
-  }
-
   /// 수동 로그인 버튼 클릭 시
   Future<void> _handleSignIn() async {
     setState(() => _isLoading = true);
     try {
+      // 수동 로그인 진행 (signIn 또는 getClient 호출)
       final client = await _authManager.getClient();
       final account = _authManager.currentUser;
 
@@ -77,7 +67,7 @@ class _MainUIState extends State<MainUI> {
         _navigateToOverview(account);
       }
     } catch (error) {
-      print("로그인 에러: $error");
+      AppLogger.i("로그인 에러: $error");
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text('로그인에 실패했습니다. 다시 시도해 주세요.')),
