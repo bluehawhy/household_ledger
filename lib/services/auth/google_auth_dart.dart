@@ -14,11 +14,20 @@ class DesktopGoogleAuthService implements GoogleAuthService {
 
   DesktopGoogleAuthService(this.scopes);
 
-  // 우분투 서버 전용으로 제일 단순하고 확실한 경로
+  // 우분투 서버 전용 저장 경로
   final File _tokenFile = File('.data/credentials.json');
 
+  // 사용자 프로필 및 토큰 상태를 담을 객체
+  AccessCredentials? _credentials;
+
   @override
-  Object? get currentUser => null;
+  Object? get currentUser {
+    // credentials가 존재하면 null이 아닌 유저 정보(IdToken 기반 또는 더미 인증 객체)를 반환
+    if (_credentials != null) {
+      return _credentials?.idToken ?? 'authenticated_user';
+    }
+    return null;
+  }
 
   /// client_secret.json 읽기
   Future<ClientId> _loadClientIdFromJson() async {
@@ -61,7 +70,7 @@ class DesktopGoogleAuthService implements GoogleAuthService {
     };
   }
 
-  /// 💡 .data 디렉터리가 없을 경우 자동 생성 및 저장
+  /// .data 디렉터리가 없을 경우 자동 생성 및 저장
   Future<void> _saveTokenFile(AccessCredentials credentials) async {
     final directory = Directory('.data');
     if (!await directory.exists()) {
@@ -118,6 +127,7 @@ class DesktopGoogleAuthService implements GoogleAuthService {
             print("💾 갱신된 .data/credentials.json 저장 완료");
           }
 
+          _credentials = credentials; // currentUser용 내부 상태 업데이트
           print("✅ 저장된 .data/credentials.json 인증 정보를 사용합니다.");
 
           return autoRefreshingClient(
@@ -131,14 +141,17 @@ class DesktopGoogleAuthService implements GoogleAuthService {
       }
     }
 
-    // 2. 파일이 없으면 최초 사용자 브라우저 인증 진행
-    print("🌐 브라우저 인증을 시작합니다...");
+    // 2. 파일이 없거나 유효하지 않으면 사용자 인증 진행
+    print("🌐 브라우저/콘솔 인증을 시작합니다...");
 
+    // 우분투 Headless(GUI 없음) 환경 및 모바일 수동 접속을 고려하여 콘솔 프롬프트 인증 지원
     final client = await clientViaUserConsent(
       clientId,
       scopes,
       _openBrowser,
     );
+
+    _credentials = client.credentials; // currentUser용 내부 상태 업데이트
 
     // .data/credentials.json 에 저장
     await _saveTokenFile(client.credentials);
@@ -149,14 +162,18 @@ class DesktopGoogleAuthService implements GoogleAuthService {
   }
 
   void _openBrowser(String url) {
+    print("\n====================================================");
+    print("🔗 스마트폰이나 PC 브라우저에서 아래 URL에 접속해 인증을 완료해주세요:");
+    print(url);
+    print("====================================================\n");
+
     if (Platform.isWindows) {
       Process.run('rundll32', ['url.dll,FileProtocolHandler', url]);
     } else if (Platform.isMacOS) {
       Process.run('open', [url]);
     } else if (Platform.isLinux) {
-      Process.run('xdg-open', [url]);
-    } else {
-      print("\n🔗 아래 URL을 브라우저에 직접 복사하여 인증해주세요:\n$url\n");
+      // 우분투 GUI 환경일 때만 실행 (실패해도 콘솔 URL 출력으로 대체 가능)
+      Process.run('xdg-open', [url]).catchError((_) {});
     }
   }
 }
