@@ -1,9 +1,5 @@
-import 'dart:io';
-import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
-import 'package:google_sign_in/google_sign_in.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-
 import 'package:household_ledger/services/auth/google_auth.dart';
 import 'package:household_ledger/ui/overview_ui.dart';
 
@@ -16,20 +12,7 @@ class MainUI extends StatefulWidget {
 
 class _MainUIState extends State<MainUI> {
   bool _isLoading = true;
-
-  // 1. 데스크톱/우분투 서버용 Auth Manager
-  final GoogleAuthManager _desktopAuthManager = GoogleAuthManager();
-
-  // 2. 모바일(Android/iOS) 전용 GoogleSignIn 객체
-  final GoogleSignIn _mobileGoogleSignIn = GoogleSignIn(
-    scopes: const [
-      'https://www.googleapis.com/auth/drive.file',
-      'email',
-    ],
-  );
-
-  /// 플랫폼 판별 헬퍼 (모바일 여부 확인)
-  bool get _isMobile => !kIsWeb && (Platform.isAndroid || Platform.isIOS);
+  final GoogleAuthManager _authManager = GoogleAuthManager();
 
   @override
   void initState() {
@@ -37,28 +20,35 @@ class _MainUIState extends State<MainUI> {
     _checkSignInState();
   }
 
-  /// 💡 시작 시 로그인 상태 체크 (플랫폼별 분기)
+  /// 💡 저장된 세션 확인 및 구글 서버 인증 유효성 실시간 검증
   Future<void> _checkSignInState() async {
-    try {
-      if (_isMobile) {
-        // [모바일] GoogleSignIn.signInSilently()로 기존 로그인 확인
-        final account = await _mobileGoogleSignIn.signInSilently();
-        if (account != null && mounted) {
-          _navigateToOverview(account);
-          return;
-        }
-      } else {
-        // [데스크톱/우분투] .data/credentials.json 파일 읽기 시도
-        await _desktopAuthManager.getClient();
-        final account = _desktopAuthManager.currentUser;
+    final prefs = await SharedPreferences.getInstance();
+    final bool isLoggedInFlag = prefs.getBool('is_logged_in') ?? false;
 
-        if (account != null && mounted) {
+    try {
+      if (!isLoggedInFlag) {
+        if (mounted) setState(() => _isLoading = false);
+        return;
+      }
+
+      // 1. 기존 세션 Silent Sign-In 시도
+      var account = _authManager.currentUser ?? await _authManager.signInSilently();
+
+      if (account != null) {
+        // 2. [핵심] 실제 구글 서버 인증 클라이언트 획득 시도 (비밀번호 변경/강제로그아웃 시 에러 발생)
+        final client = await _authManager.getClient();
+        
+        if (mounted) {
           _navigateToOverview(account);
           return;
         }
       }
+
+      // 세션이 유효하지 않으면 정리
+      await _clearSession(prefs);
     } catch (e) {
-      print("ℹ 기존 로그인 정보가 없거나 만료됨: $e");
+      print("세션 만료 또는 무효화된 로그인 (수동 로그인 유도): $e");
+      await _clearSession(prefs);
     } finally {
       if (mounted) {
         setState(() => _isLoading = false);
@@ -66,28 +56,25 @@ class _MainUIState extends State<MainUI> {
     }
   }
 
-  /// 💡 수동 로그인 버튼 클릭 시 (플랫폼별 분기)
+  Future<void> _clearSession(SharedPreferences prefs) async {
+    await prefs.remove('is_logged_in');
+    try {
+      await _authManager.signOut();
+    } catch (_) {}
+  }
+
+  /// 수동 로그인 버튼 클릭 시
   Future<void> _handleSignIn() async {
     setState(() => _isLoading = true);
     try {
-      if (_isMobile) {
-        // [모바일] Native Google Sign-In 팝업 호출
-        final account = await _mobileGoogleSignIn.signIn();
-        if (account != null && mounted) {
-          final prefs = await SharedPreferences.getInstance();
-          await prefs.setBool('is_logged_in', true);
-          _navigateToOverview(account);
-        }
-      } else {
-        // [데스크톱/우분투] clientViaUserConsent 호출 및 .data/credentials.json 저장
-        await _desktopAuthManager.getClient();
-        final account = _desktopAuthManager.currentUser;
+      final client = await _authManager.getClient();
+      final account = _authManager.currentUser;
 
-        if (account != null && mounted) {
-          final prefs = await SharedPreferences.getInstance();
-          await prefs.setBool('is_logged_in', true);
-          _navigateToOverview(account);
-        }
+      if (account != null && mounted) {
+        final prefs = await SharedPreferences.getInstance();
+        await prefs.setBool('is_logged_in', true);
+
+        _navigateToOverview(account);
       }
     } catch (error) {
       print("로그인 에러: $error");
@@ -122,7 +109,7 @@ class _MainUIState extends State<MainUI> {
                 children: const [
                   CircularProgressIndicator(),
                   SizedBox(height: 16),
-                  Text('인증 정보 확인 중...'),
+                  Text('로그인 확인 중...'),
                 ],
               )
             : ElevatedButton.icon(
