@@ -87,7 +87,7 @@ class _CategoryDetailUIState extends State<CategoryDetailUI> {
 
                       // Google Sheet 데이터의 날짜/메모/결제수단/금액 파싱
                       final DateFormat dateFormatter = DateFormat('yyyy-MM-dd');
-                      
+
                       final String dateStr = () {
                         if (item.date == null) return '';
                         if (item.date is DateTime) {
@@ -95,84 +95,92 @@ class _CategoryDetailUIState extends State<CategoryDetailUI> {
                         }
                         return item.date.toString(); // 이미 String이거나 다른 타입인 경우
                       }();
-                      
+
                       final String description = (item.description != null && item.description.isNotEmpty)
                           ? item.description
                           : '설명 없음';
                       final String? payMethod = item.payMethod;
                       final int amount = (item.amount ?? 0).toInt();
 
-                      return ListTile(
-                        contentPadding: const EdgeInsets.symmetric(vertical: 8, horizontal: 4),
-                        
-                        // 클릭 시 AnItemDetailUI 화면으로 이동
-                        onTap: () async {
-                          final bool? dataChanged = await Navigator.push<bool>(
-                            context,
-                            MaterialPageRoute(
-                              builder: (context) => AnItemDetailUI(
-                                item: item,
-                                isExpense: widget.isExpense,
-                                onUpdate: (oldItem, updatedData) async { // 💡 oldItem의 타입이 LedgerItem으로 추론됨
-                                  final service = LedgerDataService();
-                                  final newItem = (oldItem as LedgerItem).copyWith(
-                                    date: updatedData['date'],
-                                    category: updatedData['category'],
-                                    description: updatedData['description'],
-                                    amount: updatedData['amount'],
-                                    payMethod: updatedData['payMethod'],
-                                    memo: updatedData['memo'],
-                                  );
-                                  await service.updateTransaction(
-                                    client: widget.client,
-                                    oldItem: oldItem,
-                                    newItem: newItem,
-                                  );
-                                },
-                                onDelete: (item) {
-                                  // TODO: 삭제 시 구글 시트 반영 또는 State 갱신 로직
-                                },
-                              ),
-                            ),
-                          );
-                          // 💡 상세 페이지에서 데이터 변경이 있었다면, 현재 화면도 닫고 Overview에 알림
-                          if (dataChanged == true && mounted) {
-                            Navigator.of(context).pop(true);
-                          }
-                        },
-                        
-                        title: Text(
-                          description,
-                          style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
-                        ),
-                        subtitle: Padding(
-                          padding: const EdgeInsets.only(top: 4),
-                          child: Row(
-                            children: [
-                              Text(dateStr, style: const TextStyle(fontSize: 13, color: Colors.grey)),
-                              if (payMethod != null && payMethod.isNotEmpty) ...[
-                                const SizedBox(width: 8),
-                                Container(
-                                  padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                                  decoration: BoxDecoration(
-                                    color: Colors.grey[200],
-                                    borderRadius: BorderRadius.circular(4),
-                                  ),
-                                  child: Text(
-                                    payMethod,
-                                    style: const TextStyle(fontSize: 11, color: Colors.black87),
-                                  ),
+                      return Material(
+                        color: Colors.transparent, // ListTile InkSplash 예외 방지
+                        child: ListTile(
+                          contentPadding: const EdgeInsets.symmetric(vertical: 8, horizontal: 4),
+
+                          // 클릭 시 AnItemDetailUI 화면으로 이동
+                          onTap: () async {
+                            final bool? dataChanged = await Navigator.push<bool>(
+                              context,
+                              MaterialPageRoute(
+                                builder: (context) => AnItemDetailUI(
+                                  item: item,
+                                  isExpense: widget.isExpense,
+                                  onUpdate: (oldItem, updatedData) async {
+                                    final service = LedgerDataService();
+                                    
+                                    // 💡 type 추가: updatedData에서 전달받은 type 반영
+                                    final newItem = (oldItem as LedgerItem).copyWith(
+                                      type: updatedData['type'], // 👈 이 부분이 추가되었습니다!
+                                      date: updatedData['date'],
+                                      category: updatedData['category'],
+                                      description: updatedData['description'],
+                                      amount: updatedData['amount'],
+                                      payMethod: updatedData['payMethod'],
+                                      memo: updatedData['memo'],
+                                    );
+
+                                    await service.updateTransaction(
+                                      client: widget.client,
+                                      oldItem: oldItem,
+                                      newItem: newItem,
+                                    );
+                                  },
+                                  onDelete: (item) {
+                                    // TODO: 삭제 시 구글 시트 반영 또는 State 갱신 로직
+                                  },
                                 ),
-                              ],
-                            ],
+                              ),
+                            );
+
+                            // 상세 페이지에서 데이터 변경이 있었다면, 현재 화면도 닫고 Overview에 알림
+                            if (dataChanged == true && mounted) {
+                              Navigator.of(context).pop(true);
+                            }
+                          },
+
+                          title: Text(
+                            description,
+                            style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
                           ),
-                        ),
-                        trailing: Text(
-                          '${_currencyFormatter.format(amount)} 원',
-                          style: TextStyle(
-                            fontSize: 16,
-                            fontWeight: FontWeight.bold,
-                            color: themeColor,
+                          subtitle: Padding(
+                            padding: const EdgeInsets.only(top: 4),
+                            child: Row(
+                              children: [
+                                Text(dateStr, style: const TextStyle(fontSize: 13, color: Colors.grey)),
+                                if (payMethod != null && payMethod.isNotEmpty) ...[
+                                  const SizedBox(width: 8),
+                                  Container(
+                                    padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                                    decoration: BoxDecoration(
+                                      color: Colors.grey[200],
+                                      borderRadius: BorderRadius.circular(4),
+                                    ),
+                                    child: Text(
+                                      payMethod,
+                                      style: const TextStyle(fontSize: 11, color: Colors.black87),
+                                    ),
+                                  ),
+                                ],
+                              ],
+                            ),
+                          ),
+                          trailing: Text(
+                            '${_currencyFormatter.format(amount)} 원',
+                            style: TextStyle(
+                              fontSize: 16,
+                              fontWeight: FontWeight.bold,
+                              color: themeColor,
+                            ),
                           ),
                         ),
                       );
