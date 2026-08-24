@@ -17,17 +17,82 @@ class LedgerCacheManager {
 
   bool get isInitialized => _folderIdMap.isNotEmpty;
 
+  // --------------------------------------------------------------------------
+  // 1️⃣ 공유받은 폴더 존재 여부 및 목록 확인
+  // 결과: Map<계정 이메일, 폴더 ID>
+  // --------------------------------------------------------------------------
+  Future<Map<String, String>> getSharedFolders(
+    drive.DriveApi driveApi, {
+    required String folderName,
+  }) async {
+    final sharedFolderMap = <String, String>{};
+
+    final query =
+        "name = '$folderName' and mimeType = 'application/vnd.google-apps.folder' and sharedWithMe = true and trashed = false";
+
+    final result = await driveApi.files.list(
+      q: query,
+      $fields: "files(id, name, owners/emailAddress)",
+    );
+
+    if (result.files != null && result.files!.isNotEmpty) {
+      for (var file in result.files!) {
+        final folderId = file.id;
+        final ownerEmail = file.owners?.firstOrNull?.emailAddress;
+
+        if (folderId != null && ownerEmail != null) {
+          sharedFolderMap[ownerEmail] = folderId;
+        }
+      }
+    }
+
+    AppLogger.i("공유받은 '$folderName' 폴더 목록: $sharedFolderMap");
+    return sharedFolderMap;
+  }
+
+  // --------------------------------------------------------------------------
+  // 2️⃣ 특정 폴더 내의 {파일명 : 시트 ID} 추출
+  // --------------------------------------------------------------------------
+  Future<Map<String, String>> getSpreadsheetsInFolder(
+    drive.DriveApi driveApi, {
+    required String folderId,
+  }) async {
+    final sheetMap = <String, String>{};
+
+    final query =
+        "'$folderId' in parents and mimeType = 'application/vnd.google-apps.spreadsheet' and trashed = false";
+
+    final fileList = await driveApi.files.list(
+      q: query,
+      $fields: "files(id, name)",
+    );
+
+    if (fileList.files != null) {
+      for (var file in fileList.files!) {
+        if (file.name != null && file.id != null) {
+          sheetMap[file.name!] = file.id!;
+        }
+      }
+    }
+
+    AppLogger.i("폴더(ID: $folderId) 내 시트 목록: $sheetMap");
+    return sheetMap;
+  }
+
   /// 앱 초기화 시 구글 드라이브의 특정 폴더 내 모든 연도별 시트 목록을 한 번에 스캔 및 캐싱
-  Future<void> initializeAllSheets(drive.DriveApi driveApi, {String folderName = "가계부"}) async {
+  Future<void> initializeAllSheets(
+    drive.DriveApi driveApi, {
+    String folderName = "가계부",
+  }) async {
     final folderId = await getFolderId(driveApi, folderName: folderName);
 
-    final query = "'$folderId' in parents and mimeType = 'application/vnd.google-apps.spreadsheet' and trashed = false";
+    final query =
+        "'$folderId' in parents and mimeType = 'application/vnd.google-apps.spreadsheet' and trashed = false";
     final fileList = await driveApi.files.list(q: query);
 
     _yearToSpreadsheetIdMap.clear();
 
     if (fileList.files != null) {
-      // 💡 동적 folderName 정규식 적용 (예: "가계부_2026" or "차계부_2026")
       final regExp = RegExp(RegExp.escape(folderName) + r'_(\d{4})');
 
       for (var file in fileList.files!) {
@@ -54,7 +119,10 @@ class LedgerCacheManager {
   }
 
   /// 폴더 ID 반환 (Map 기반 캐싱 적용)
-  Future<String> getFolderId(drive.DriveApi driveApi, {String folderName = "가계부"}) async {
+  Future<String> getFolderId(
+    drive.DriveApi driveApi, {
+    String folderName = "가계부",
+  }) async {
     if (!_folderIdMap.containsKey(folderName)) {
       _folderIdMap[folderName] = await _getOrCreateFolder(driveApi, folderName);
     }
@@ -62,14 +130,18 @@ class LedgerCacheManager {
   }
 
   /// 폴더 생성/조회 헬퍼
-  Future<String> _getOrCreateFolder(drive.DriveApi driveApi, String folderName) async {
+  Future<String> _getOrCreateFolder(
+    drive.DriveApi driveApi,
+    String folderName,
+  ) async {
     AppLogger.i("📁 '$folderName' 폴더 확인 중...");
-    final query = "name = '$folderName' and mimeType = 'application/vnd.google-apps.folder' and trashed = false";
+    final query =
+        "name = '$folderName' and mimeType = 'application/vnd.google-apps.folder' and trashed = false";
     final result = await driveApi.files.list(q: query);
 
     if (result.files != null && result.files!.isNotEmpty) {
       final id = result.files!.first.id!;
-      AppLogger.i("  └ 💡 기존 폴더 사용 (ID: $id)");
+      AppLogger.i("  └ 💡 기존 폴더 사용 (폴더 ID: $id)");
       return id;
     }
 
@@ -95,7 +167,7 @@ class LedgerCacheManager {
 class LedgerSheetSetupService {
   final CategoryMapper categoryMapper = CategoryMapper();
   final LedgerCacheManager cacheManager = LedgerCacheManager();
-  final Map<int, Future<String>> _spreadsheetInitFutures = {};
+  final Map<int, Future<String?>> _spreadsheetInitFutures = {};
 
   /// 서비스 초기화 시 JSON 설정 파일 및 구글 드라이브 시트 목록 사전 스캔
   Future<void> init(
@@ -107,30 +179,45 @@ class LedgerSheetSetupService {
     await cacheManager.initializeAllSheets(driveApi);
   }
 
-  /// 특정 연도 가계부 설정 (캐시 체크 및 동시성 락 적용)
-  Future<String> setupLedgerSpreadsheetForYear(AuthClient client, int year) async {
+  /// 특정 연도 가계부 설정 (타 계정용 등 생성 방지 옵션 createIfNotFound 추가)
+  Future<String?> setupLedgerSpreadsheetForYear(
+    AuthClient client,
+    int year, {
+    bool createIfNotFound = true,
+  }) async {
     final cachedId = cacheManager.getSpreadsheetId(year);
     if (cachedId != null) {
       return cachedId;
     }
 
     if (_spreadsheetInitFutures.containsKey(year)) {
-      AppLogger.i("💡 [$year년] 시트 확인/생성 작업이 이미 진행 중이므로 완료를 기다립니다.");
+      AppLogger.i("💡 [$year년] 시트 확인 작업 진행 중...");
       return await _spreadsheetInitFutures[year]!;
     }
 
-    final initFuture = _setupLedgerSpreadsheetForYearInternal(client, year);
+    final initFuture = _setupLedgerSpreadsheetForYearInternal(
+      client,
+      year,
+      createIfNotFound: createIfNotFound,
+    );
     _spreadsheetInitFutures[year] = initFuture;
 
     try {
       final spreadsheetId = await initFuture;
+      if (spreadsheetId != null) {
+        cacheManager.registerSpreadsheetId(year, spreadsheetId);
+      }
       return spreadsheetId;
     } finally {
       _spreadsheetInitFutures.remove(year);
     }
   }
 
-  Future<String> _setupLedgerSpreadsheetForYearInternal(AuthClient client, int year) async {
+  Future<String?> _setupLedgerSpreadsheetForYearInternal(
+    AuthClient client,
+    int year, {
+    required bool createIfNotFound,
+  }) async {
     if (!categoryMapper.isLoaded) {
       await categoryMapper.loadCategoryJson();
     }
@@ -141,23 +228,22 @@ class LedgerSheetSetupService {
     final folderId = await cacheManager.getFolderId(driveApi);
     final fileName = "가계부_$year";
 
-    final spreadsheetId = await _getOrCreateSpreadsheet(
+    return await _getOrCreateSpreadsheet(
       driveApi,
       sheetsApi,
       folderId,
       fileName,
+      createIfNotFound: createIfNotFound,
     );
-
-    cacheManager.registerSpreadsheetId(year, spreadsheetId);
-    return spreadsheetId;
   }
 
-  Future<String> _getOrCreateSpreadsheet(
+  Future<String?> _getOrCreateSpreadsheet(
     drive.DriveApi driveApi,
     sheets.SheetsApi sheetsApi,
     String folderId,
-    String fileName,
-  ) async {
+    String fileName, {
+    required bool createIfNotFound,
+  }) async {
     AppLogger.i("📊 '$fileName' 파일 확인 중...");
 
     final query =
@@ -168,6 +254,12 @@ class LedgerSheetSetupService {
       final id = result.files!.first.id!;
       AppLogger.i("  └ 💡 기존 파일이 이미 존재합니다. (ID: $id)");
       return id;
+    }
+
+    // 💡 타 계정 접근 시 시트가 없는 경우 새로 생성하지 않고 null 반환
+    if (!createIfNotFound) {
+      AppLogger.i("⚠️ '$fileName' 파일이 존재하지 않으며, 타 계정이므로 신규 생성을 진행하지 않습니다.");
+      return null;
     }
 
     AppLogger.i("  └ ➕ '$fileName' 파일이 없어 새 시트를 생성합니다...");
@@ -329,12 +421,12 @@ class LedgerSheetSetupService {
 // 💳 가계부 거래 데이터 CRUD 서비스
 // ============================================================================
 class LedgerDataService {
-  // 💡 의존성 주입(DI) 적용: 외부에서 전달받거나 기본 인스턴스 사용
   final LedgerSheetSetupService sheetSetupService;
-  final CategoryMapper categoryMapper = CategoryMapper();
 
   LedgerDataService({LedgerSheetSetupService? sheetSetupService})
       : sheetSetupService = sheetSetupService ?? LedgerSheetSetupService();
+
+  CategoryMapper get categoryMapper => sheetSetupService.categoryMapper;
 
   static const List<String> defaultHeader = [
     "날짜", "거래유형", "거래 수단", "분류", "내용", "금액", "메모"
@@ -347,70 +439,60 @@ class LedgerDataService {
   // ==========================================================================
   // 🔵 단일 항목 입력 로직
   // ==========================================================================
-  Future<void> addTransaction({
+  Future<bool> addTransaction({
     required AuthClient client,
     required LedgerItem item,
     String? spreadsheetId,
   }) async {
     if (item.amount <= 0) {
       AppLogger.i("⚠️ [0원 패스] [${item.formattedDate}] '${item.description}' 금액이 0원이므로 저장하지 않습니다.");
-      return;
+      return false;
     }
+
     if (!categoryMapper.isLoaded) {
       await categoryMapper.loadCategoryJson();
     }
 
     final sheetsApi = sheets.SheetsApi(client);
-    final targetSpreadsheetId = await sheetSetupService.setupLedgerSpreadsheetForYear(client, item.date.year);
 
-    item = item.copyWith(
+    final targetSpreadsheetId = (spreadsheetId != null && spreadsheetId.isNotEmpty)
+        ? spreadsheetId
+        : await sheetSetupService.setupLedgerSpreadsheetForYear(client, item.date.year);
+
+    if (targetSpreadsheetId == null) {
+      AppLogger.i("⚠️ 대상 스프레드시트 ID를 찾을 수 없습니다.");
+      return false;
+    }
+
+    final updatedItem = item.copyWith(
       category: categoryMapper.getCategory(
         item.description,
         isIncome: item.type == TransactionType.income,
       ),
     );
 
-    final monthSheetName = '${item.date.month}월';
+    final monthSheetName = '${updatedItem.date.month}월';
     await _ensureMonthSheetExists(sheetsApi, targetSpreadsheetId, monthSheetName);
 
+    // 기존 데이터 읽어서 중복 여부 확인
     final range = "'$monthSheetName'!A1:G1000";
-    List<List<dynamic>> existingRows = [];
+    final response = await sheetsApi.spreadsheets.values.get(
+      targetSpreadsheetId,
+      range,
+    );
+    final List<List<dynamic>> existingRows = response.values ?? [];
 
-    try {
-      final response = await sheetsApi.spreadsheets.values.get(
-        targetSpreadsheetId,
-        range,
-      );
-      existingRows = response.values ?? [];
-    } on sheets.DetailedApiRequestError catch (e) {
-      AppLogger.i("⚠️ [$monthSheetName] 시트 읽기 실패 (${e.status}): ${e.message}");
-      return;
-    } catch (e) {
-      AppLogger.i("⚠️ [$monthSheetName] 시트 읽기 중 예외 발생: $e");
-      return;
+    if (_checkDuplicate(existingRows, updatedItem)) {
+      AppLogger.i("⚠️ [중복 패스] [${updatedItem.formattedDate}] '${updatedItem.description}' (${updatedItem.amount}원) 내역이 이미 존재합니다.");
+      return false;
     }
 
-    if (existingRows.isEmpty) {
-      await sheetsApi.spreadsheets.values.update(
-        sheets.ValueRange(range: "'$monthSheetName'!A1:G1", values: [defaultHeader]),
-        targetSpreadsheetId,
-        "'$monthSheetName'!A1:G1",
-        valueInputOption: "USER_ENTERED",
-      );
-      existingRows = [defaultHeader];
-    }
-
-    if (_checkDuplicate(existingRows, item)) {
-      AppLogger.i("⚠️ [중복 패스] [${item.formattedDate}] '${item.description}' (${item.amount}원) 내역이 이미 존재합니다.");
-      return;
-    }
-
-    await appendTransactionData(
+    return await appendTransactionData(
       sheetsApi,
       targetSpreadsheetId,
       monthSheetName,
       existingRows,
-      item,
+      updatedItem,
     );
   }
 
@@ -439,7 +521,12 @@ class LedgerDataService {
         ? spreadsheetId
         : await sheetSetupService.setupLedgerSpreadsheetForYear(client, oldItem.date.year);
 
-    newItem = newItem.copyWith(
+    if (targetSpreadsheetId == null) {
+      AppLogger.i("⚠️ 대상 스프레드시트 ID를 찾을 수 없습니다.");
+      return false;
+    }
+
+    final updatedNewItem = newItem.copyWith(
       category: categoryMapper.getCategory(
         newItem.description,
         isIncome: newItem.type == TransactionType.income,
@@ -485,15 +572,15 @@ class LedgerDataService {
         return false;
       }
 
-      final isIncome = newItem.type == TransactionType.income;
+      final isIncome = updatedNewItem.type == TransactionType.income;
       final List<Object?> rowData = [
-        newItem.formattedDate,
+        updatedNewItem.formattedDate,
         isIncome ? "수입" : "지출",
-        newItem.payMethod ?? "-",
-        newItem.category ?? "미분류",
-        newItem.description,
-        newItem.amount,
-        newItem.memo ?? "",
+        updatedNewItem.payMethod ?? "-",
+        updatedNewItem.category ?? "미분류",
+        updatedNewItem.description,
+        updatedNewItem.amount,
+        updatedNewItem.memo ?? "",
       ];
 
       final targetRange = "'$monthSheetName'!A$targetRowIndex:G$targetRowIndex";
@@ -628,7 +715,13 @@ class LedgerDataService {
       final List<LedgerItem> groupItems = entry.value;
 
       final sheetName = "${month}월";
-      final String spreadsheetId = await sheetSetupService.setupLedgerSpreadsheetForYear(client, year);
+      final String? spreadsheetId = await sheetSetupService.setupLedgerSpreadsheetForYear(client, year);
+
+      if (spreadsheetId == null) {
+        AppLogger.i("⚠️ [$year년] 시트를 찾지 못하거나 생성하지 못해 처리를 가로채거나 제외합니다.");
+        totalSkipped += groupItems.length;
+        continue;
+      }
 
       AppLogger.i("🚀 [$year년 $sheetName] ${groupItems.length}개 항목 처리 시작 (Spreadsheet ID: $spreadsheetId)");
 
@@ -641,10 +734,12 @@ class LedgerDataService {
 
       if (success) {
         totalSuccess += groupItems.length;
+      } else {
+        totalSkipped += groupItems.length;
       }
     }
 
-    AppLogger.i("📊 [최종 완료] 성공: $totalSuccess건");
+    AppLogger.i("📊 [최종 완료] 성공: $totalSuccess건, 실패/건너뜀: $totalSkipped건");
     return {'success': totalSuccess, 'skipped': totalSkipped};
   }
 
@@ -755,10 +850,9 @@ class LedgerDataService {
   }
 
   // ==========================================================================
-  // 🟢 [기능 C] 월별 수입 / 지출 내역 조회 로직 (중복 제거 및 간소화)
+  // 🟢 [기능 C] 월별 수입 / 지출 내역 조회 로직
   // ==========================================================================
 
-  /// 💡 getMonthlyLedger를 통해 가져온 전체 리스트에서 필터링만 수행
   Future<List<LedgerItem>> getMonthlyExpenses({
     required AuthClient client,
     required int year,
@@ -804,6 +898,11 @@ class LedgerDataService {
   }) async {
     final sheetsApi = sheets.SheetsApi(client);
     final targetSpreadsheetId = await sheetSetupService.setupLedgerSpreadsheetForYear(client, year);
+
+    if (targetSpreadsheetId == null) {
+      AppLogger.i("⚠️ [$year년 $month월] 시트를 찾을 수 없어 빈 목록을 반환합니다.");
+      return [];
+    }
 
     final monthSheetName = '$month월';
     final range = "'$monthSheetName'!A1:G1000";
@@ -969,6 +1068,47 @@ class LedgerIngestionService {
         isSuccess: false,
         errorMessage: e.toString(),
       );
+    }
+  }
+}
+
+class GoogleSpreadsheetService {
+  final drive.DriveApi _driveApi;
+
+  GoogleSpreadsheetService(AuthClient client)
+      : _driveApi = drive.DriveApi(client);
+
+  /// 특정 파일(스프레드시트) 또는 폴더를 특정 이메일 사용자와 공유합니다.
+  /// 
+  /// - [fileOrFolderId]: 공유할 스프레드시트 ID 또는 폴더 ID
+  /// - [email]: 권한을 부여할 대상자의 이메일 주소
+  /// - [role]: 부여할 권한 수준 ('writer', 'commenter', 'reader')
+  /// - [sendNotificationEmail]: 안내 이메일 발송 여부
+  Future<drive.Permission> shareFileOrFolder({
+    required String fileOrFolderId,
+    required String email,
+    String role = 'writer', // 기본값: 편집자 권한
+    bool sendNotificationEmail = true,
+  }) async {
+    try {
+      // 1. Permission 객체 생성
+      final permission = drive.Permission()
+        ..type = 'user' // 사용자 단독 공유 ('user', 'group', 'domain', 'anyone')
+        ..role = role   // 권한 수준 ('owner', 'writer', 'commenter', 'reader')
+        ..emailAddress = email;
+
+      // 2. Drive API를 사용하여 Permission 생성 요청
+      final result = await _driveApi.permissions.create(
+        permission,
+        fileOrFolderId,
+        sendNotificationEmail: sendNotificationEmail,
+      );
+
+      print('성공적으로 공유되었습니다: ${result.id} ($email -> $role)');
+      return result;
+    } catch (e) {
+      print('시트/폴더 공유 실패: $e');
+      rethrow;
     }
   }
 }

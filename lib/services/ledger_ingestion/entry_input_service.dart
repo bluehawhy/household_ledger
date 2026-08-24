@@ -4,9 +4,6 @@ import 'package:household_ledger/services/ledger_ingestion/ledger_item.dart';
 import 'package:household_ledger/services/google_drive/google_spreadsheet.dart';
 import 'package:household_ledger/services/utils/app_logger.dart';
 
-
-
-
 /// 파싱 및 시트 데이터 추가 결과 상태
 enum ParseResult {
   success,   // 성공적으로 추가됨
@@ -33,7 +30,14 @@ class SingleEntryService {
       final String sheetName = "${item.date.month}월";
 
       // 💡 setupLedgerSpreadsheetForYear 호출로 캐시 확인 및 생성/가져오기 동시 처리
-      final String spreadsheetId = await sheetService.sheetSetupService.setupLedgerSpreadsheetForYear(authClient, year);
+      final String? spreadsheetId = await sheetService.sheetSetupService
+          .setupLedgerSpreadsheetForYear(authClient, year);
+
+      // Null Safety Check: 시트 ID를 가져올 수 없으면 실패 처리
+      if (spreadsheetId == null) {
+        AppLogger.i("⚠️ [$year년] 시트를 찾을 수 없거나 생성하지 못했습니다.");
+        return ParseResult.fail;
+      }
 
       List<List<dynamic>> existingRows = [];
       try {
@@ -66,8 +70,6 @@ class SingleEntryService {
     }
   }
 }
-
-
 
 /// 다중 입력을 Google Sheets에 전송하는 입력 서비스
 class MultiEntryService {
@@ -113,7 +115,17 @@ class MultiEntryService {
       final Map<String, List<LedgerItem>> itemsBySheet = yearEntry.value;
 
       // 💡 연도에 맞는 spreadsheetId 가져오기 (없으면 자동 생성)
-      final String spreadsheetId = await sheetService.sheetSetupService.setupLedgerSpreadsheetForYear(authClient, year);
+      final String? spreadsheetId = await sheetService.sheetSetupService
+          .setupLedgerSpreadsheetForYear(authClient, year);
+
+      // Null-safety 체크: 시트 ID를 얻지 못했다면 해당 연도의 모든 항목을 실패 건수로 합산 처리
+      if (spreadsheetId == null) {
+        AppLogger.i("⚠️ [$year년] 시트를 찾을 수 없거나 생성에 실패했습니다.");
+        final yearItemCount = itemsBySheet.values
+            .fold<int>(0, (sum, list) => sum + list.length);
+        failCount += yearItemCount;
+        continue;
+      }
 
       // 3. 월 단위 시트별 처리
       for (final sheetEntry in itemsBySheet.entries) {
@@ -148,7 +160,7 @@ class MultiEntryService {
           for (final item in pendingItems) {
             final targetDateDigits =
                 "${item.date.year}${item.date.month.toString().padLeft(2, '0')}${item.date.day.toString().padLeft(2, '0')}";
-            
+
             if (!dateDigits.contains(targetDateDigits)) continue;
 
             final targetAmount = item.amount.toString();
@@ -168,7 +180,7 @@ class MultiEntryService {
         }
 
         final List<LedgerItem> itemsToAppend = [];
-        final Set<String> batchKeys = {}; // 💡 [추가] 현재 배치 내 중복을 추적하기 위한 Set
+        final Set<String> batchKeys = {}; // 현재 배치 내 중복 추적을 위한 Set
 
         // 3-3. 입력 항목 중복 비교
         for (final item in pendingItems) {
@@ -184,7 +196,7 @@ class MultiEntryService {
             AppLogger.i("🔁 [중복 스킵] [$year년 $sheetName] $dateDigits | $targetDesc | ${item.amount}원");
           } else {
             itemsToAppend.add(item);
-            batchKeys.add(itemKey); // 💡 현재 배치에서 처리한 항목 키를 batchKeys에 추가
+            batchKeys.add(itemKey);
           }
         }
 
