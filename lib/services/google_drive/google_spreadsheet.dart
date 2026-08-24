@@ -162,6 +162,31 @@ class LedgerCacheManager {
   }
 }
 
+
+// ============================================================================
+// 스프레드시트 내 데이터 전달
+// ============================================================================
+// ============================================================================
+// 데이터 전달 클래스 및 수집 서비스
+// ============================================================================
+class LedgerSubmitResult {
+  final bool isSuccess;
+  final int total;
+  final int success;
+  final int duplicate;
+  final int fail;
+  final String? errorMessage;
+
+  LedgerSubmitResult({
+    required this.isSuccess,
+    this.total = 0,
+    this.success = 0,
+    this.duplicate = 0,
+    this.fail = 0,
+    this.errorMessage,
+  });
+}
+
 // ============================================================================
 // 💳 가계부 거래 데이터 CRUD 서비스
 // ============================================================================
@@ -716,26 +741,6 @@ class LedgerDataService {
 @Deprecated('Use LedgerSheetSetupService and LedgerDataService instead')
 class HouseholdSheetService extends LedgerDataService {}
 
-// ============================================================================
-// 데이터 전달 클래스 및 수집 서비스
-// ============================================================================
-class LedgerSubmitResult {
-  final bool isSuccess;
-  final int total;
-  final int success;
-  final int duplicate;
-  final int fail;
-  final String? errorMessage;
-
-  LedgerSubmitResult({
-    required this.isSuccess,
-    this.total = 0,
-    this.success = 0,
-    this.duplicate = 0,
-    this.fail = 0,
-    this.errorMessage,
-  });
-}
 
 class LedgerIngestionService {
   final TextParserService _textParserService = TextParserService();
