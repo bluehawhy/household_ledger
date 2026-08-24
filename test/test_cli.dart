@@ -30,6 +30,7 @@ void main() async {
     final client = await authService.getAuthenticatedClient();
     print("🔐 Google OAuth 인증 성공!");
 
+
     // 3. 연도별 가계부 시트 ID 자동 획득/설정
     final spreadsheetId = await sheetService.sheetSetupService
         .setupLedgerSpreadsheetForYear(client, DateTime.now().year);
