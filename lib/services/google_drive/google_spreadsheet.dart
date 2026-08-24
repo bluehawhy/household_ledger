@@ -1072,6 +1072,7 @@ class LedgerIngestionService {
   }
 }
 
+
 class GoogleSpreadsheetService {
   final drive.DriveApi _driveApi;
 
@@ -1080,10 +1081,9 @@ class GoogleSpreadsheetService {
 
   /// 특정 파일(스프레드시트) 또는 폴더를 특정 이메일 사용자와 공유합니다.
   /// 
-  /// - [fileOrFolderId]: 공유할 스프레드시트 ID 또는 폴더 ID
-  /// - [email]: 권한을 부여할 대상자의 이메일 주소
-  /// - [role]: 부여할 권한 수준 ('writer', 'commenter', 'reader')
-  /// - [sendNotificationEmail]: 안내 이메일 발송 여부
+  /// - 이미 동일한 권한이 존재하는 경우: API 호출을 생략하고 기존 권한 객체를 반환합니다.
+  /// - 권한 변경이 필요한 경우: [permissions.update]를 수행합니다.
+  /// - 기존 권한이 없는 경우: [permissions.create]로 새로운 권한을 생성합니다.
   Future<drive.Permission> shareFileOrFolder({
     required String fileOrFolderId,
     required String email,
@@ -1091,24 +1091,73 @@ class GoogleSpreadsheetService {
     bool sendNotificationEmail = true,
   }) async {
     try {
-      // 1. Permission 객체 생성
-      final permission = drive.Permission()
-        ..type = 'user' // 사용자 단독 공유 ('user', 'group', 'domain', 'anyone')
-        ..role = role   // 권한 수준 ('owner', 'writer', 'commenter', 'reader')
+      // 1. 기존 공유 권한 목록 조회
+      // emailAddress, role, type 등의 상세 정보를 조회하기 위해 fields 파라미터 추가
+      final permissionsList = await _driveApi.permissions.list(
+        fileOrFolderId,
+        $fields: 'permissions(id, type, role, emailAddress)',
+      );
+
+      // 2. 입력된 이메일과 일치하는 기존 권한 찾기
+      drive.Permission? existingPermission;
+      if (permissionsList.permissions != null) {
+        for (final p in permissionsList.permissions!) {
+          if (p.emailAddress?.toLowerCase() == email.toLowerCase()) {
+            existingPermission = p;
+            break;
+          }
+        }
+      }
+
+      // 3. 기존 권한 상태에 따른 조건부 처리
+      if (existingPermission != null) {
+        // CASE 3-1: 동일한 권한이 이미 존재 -> 생략
+        if (existingPermission.role == role) {
+          print('ℹ️ [$email] 사용자에게 이미 동일한 권한($role)이 부여되어 있습니다. 공유를 생략합니다.');
+          return existingPermission;
+        }
+
+        // CASE 3-2: 권한 수준 변경 필요 -> update 호출
+        print('🔄 [$email] 기존 권한(${existingPermission.role})을 새 권한($role)으로 업데이트합니다.');
+        final updatedPermission = drive.Permission()..role = role;
+
+        final result = await _driveApi.permissions.update(
+          updatedPermission,
+          fileOrFolderId,
+          existingPermission.id!,
+        );
+
+        print('✅ 권한 업데이트 성공: ${result.id} ($email -> $role)');
+        return result;
+      }
+
+      // CASE 3-3: 기존 권한 없음 -> 새로 생성
+      print('➕ [$email] 새 사용자 공유 권한($role)을 생성합니다.');
+      final newPermission = drive.Permission()
+        ..type = 'user'
+        ..role = role
         ..emailAddress = email;
 
-      // 2. Drive API를 사용하여 Permission 생성 요청
       final result = await _driveApi.permissions.create(
-        permission,
+        newPermission,
         fileOrFolderId,
         sendNotificationEmail: sendNotificationEmail,
       );
 
-      print('성공적으로 공유되었습니다: ${result.id} ($email -> $role)');
+      print('✅ 성공적으로 공유되었습니다: ${result.id} ($email -> $role)');
       return result;
+
     } catch (e) {
-      print('시트/폴더 공유 실패: $e');
+      print('❌ 시트/폴더 공유 작업 실패: $e');
       rethrow;
     }
   }
 }
+
+
+
+
+
+
+
+

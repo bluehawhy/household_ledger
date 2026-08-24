@@ -14,7 +14,15 @@ class DesktopGoogleAuthService implements GoogleAuthService {
 
   DesktopGoogleAuthService(this.scopes);
 
-  final File _tokenFile = File('credentials.json');
+  final File _tokenFile = File('./data/credentials.json');
+
+  /// 저장할 디렉터리가 없으면 자동 생성
+  Future<void> _ensureDirectoryExists(File file) async {
+    final parentDir = file.parent;
+    if (!await parentDir.exists()) {
+      await parentDir.create(recursive: true);
+    }
+  }
 
   @override
   Object? get currentUser => null;
@@ -48,11 +56,11 @@ class DesktopGoogleAuthService implements GoogleAuthService {
     return ClientId(clientId, clientSecret);
   }
 
-  @override
+
+@override
   Future<AuthClient> getAuthenticatedClient() async {
     final clientId = await _loadClientIdFromJson();
 
-    // credentials.json이 있으면 재사용
     if (await _tokenFile.exists()) {
       try {
         final jsonMap = jsonDecode(await _tokenFile.readAsString())
@@ -90,6 +98,8 @@ class DesktopGoogleAuthService implements GoogleAuthService {
               httpClient,
             );
 
+            // 디렉터리 존재 확인 후 저장
+            await _ensureDirectoryExists(_tokenFile);
             await _tokenFile.writeAsString(
               jsonEncode(credentials.toJson()),
             );
@@ -103,7 +113,7 @@ class DesktopGoogleAuthService implements GoogleAuthService {
           );
         }
       } catch (e) {
-        print("⚠ 기존 credentials.json 사용 실패");
+        print("⚠ 기존 ./data/credentials.json 사용 실패");
         print(e);
       }
     }
@@ -117,14 +127,20 @@ class DesktopGoogleAuthService implements GoogleAuthService {
       _openBrowser,
     );
 
+    // 디렉터리 존재 확인 후 저장
+    await _ensureDirectoryExists(_tokenFile);
     await _tokenFile.writeAsString(
       jsonEncode(client.credentials.toJson()),
     );
 
-    print("💾 credentials.json 저장 완료");
+    print("💾 ./data/credentials.json 저장 완료");
 
     return client;
   }
+
+
+
+
 
   void _openBrowser(String url) {
     if (Platform.isWindows) {
