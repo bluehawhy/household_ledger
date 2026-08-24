@@ -12,8 +12,8 @@ void main() async {
   print("--------------------------------------------------");
 
   // ⚙️ [테스트 제어 플래그] 실행하려는 테스트 케이스를 true / false 로 설정하세요.
-  const bool runInsertTest = true; // 👈 입력 테스트 실행 여부
-  const bool runUpdateTest = true; // 👈 업데이트 테스트 실행 여부
+  const bool runInsertTest = false; // 👈 입력 테스트 실행 여부
+  const bool runUpdateTest = false; // 👈 업데이트 테스트 실행 여부
 
   // 1. 서비스 및 인증 객체 생성
   final GoogleAuthService authService = DesktopGoogleAuthService([

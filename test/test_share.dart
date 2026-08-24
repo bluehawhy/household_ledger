@@ -8,21 +8,28 @@ import 'package:household_ledger/services/google_drive/google_spreadsheet.dart';
 
 void main() async {
   print("--------------------------------------------------");
-  print("🔐 GoogleSpreadsheetService 공유 기능 테스트 시작");
+  print("🔐 GoogleSpreadsheetService 공유/해제 기능 테스트 시작");
   print("--------------------------------------------------");
 
   // ⚙️ [테스트 제어 플래그]
-  const bool runShareSheetTest = true;  // 👈 시트 공유 테스트 실행 여부
-  const bool runShareFolderTest = true; // 👈 폴더 공유 테스트 실행 여부
+  const bool runShareSheetTest = true;   // 👈 1. 시트 공유 테스트 실행 여부
+  const bool runShareFolderTest = true;  // 👈 2. 폴더 공유 테스트 실행 여부
+  const bool runRemoveFolderShareTest = false; // 👈 3. 폴더 공유 해제 테스트 실행 여부
+  const bool runRemoveSheetShareTest = false;  // 👈 4. 시트 공유 해제 테스트 실행 여부
 
   // 1. 테스트 파라미터 설정
   // ⚠️ 실제 안내 메일이 발송되므로 테스트 가능한 이메일을 입력하세요.
-  const String targetEmail = "bluehawhy@gmail.com"; 
-  
   // 💡 테스트할 대상 ID (본인의 실제 Spreadsheet ID / Drive Folder ID 입력)
+  // 이건 mk24244
+  //const String sampleSpreadsheetId = "19GPgo7F7swEi7b9k2aH5K_y38zw20rbHfjzGbB2gt-g";
+  //const String sampleFolderId = "1SvmU3hOU--ZnYYT0o-L1vlJMfqVQXl_D";
+  // const String targetEmail = "bluehawhy@gmail.com"; 
+
   const String sampleSpreadsheetId = "19GPgo7F7swEi7b9k2aH5K_y38zw20rbHfjzGbB2gt-g";
   const String sampleFolderId = "1SvmU3hOU--ZnYYT0o-L1vlJMfqVQXl_D";
+  const String targetEmail = "mk24244@gmail.com"; 
 
+  
   // 2. OAuth 인증 서비스 생성 (Drive API 접근 권한 Scope 필요)
   final GoogleAuthService authService = DesktopGoogleAuthService([
     'https://www.googleapis.com/auth/drive', // Google Drive 전체 접근 권한
@@ -91,8 +98,58 @@ void main() async {
       print("\n⏭️ [TEST 2] Google Drive 폴더 공유 테스트는 건너뜁니다.");
     }
 
+    // =========================================================================
+    // 🗑️ [CASE 3] Google Drive 폴더(Folder) 공유 해제 테스트 (폴더부터 해제)
+    // =========================================================================
+    if (runRemoveFolderShareTest) {
+      print("\n==================================================");
+      print("🗑️ [TEST 3] Google Drive 폴더 공유 해제 테스트 시작");
+      print("==================================================");
+      print("📌 대상 Folder ID: $sampleFolderId");
+      print("📌 삭제 대상 메일: $targetEmail");
+      print("--------------------------------------------------");
+
+      final bool isRemoved = await spreadsheetService.removeShare(
+        fileOrFolderId: sampleFolderId,
+        email: targetEmail,
+      );
+
+      if (isRemoved) {
+        print("✅ [성공] Drive 폴더 공유 해제 완료!");
+      } else {
+        print("ℹ️ [안내] 기존 공유 권한이 없어 삭제 작업을 건너뛰었습니다.");
+      }
+    } else {
+      print("\n⏭️ [TEST 3] Google Drive 폴더 공유 해제 테스트는 건너뜁니다.");
+    }
+
+    // =========================================================================
+    // 🗑️ [CASE 4] 스프레드시트(Sheet) 공유 해제 테스트 (폴더 해제 후 파일 해제)
+    // =========================================================================
+    if (runRemoveSheetShareTest) {
+      print("\n==================================================");
+      print("🗑️ [TEST 4] 스프레드시트(Sheet) 공유 해제 테스트 시작");
+      print("==================================================");
+      print("📌 대상 Sheet ID : $sampleSpreadsheetId");
+      print("📌 삭제 대상 메일: $targetEmail");
+      print("--------------------------------------------------");
+
+      final bool isRemoved = await spreadsheetService.removeShare(
+        fileOrFolderId: sampleSpreadsheetId,
+        email: targetEmail,
+      );
+
+      if (isRemoved) {
+        print("✅ [성공] 스프레드시트 공유 해제 완료!");
+      } else {
+        print("ℹ️ [안내] 기존 공유 권한이 없어 삭제 작업을 건너뛰었습니다.");
+      }
+    } else {
+      print("\n⏭️ [TEST 4] 스프레드시트 공유 해제 테스트는 건너뜁니다.");
+    }
+
     print("\n--------------------------------------------------");
-    print("🏁 모든 공유 테스트 시나리오가 정상 종료되었습니다.");
+    print("🏁 모든 공유/해제 테스트 시나리오가 정상 종료되었습니다.");
     print("--------------------------------------------------");
   } catch (e, stackTrace) {
     print("\n❌ 테스트 도중 에러 발생: $e");

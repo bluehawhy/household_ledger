@@ -1092,7 +1092,6 @@ class GoogleSpreadsheetService {
   }) async {
     try {
       // 1. 기존 공유 권한 목록 조회
-      // emailAddress, role, type 등의 상세 정보를 조회하기 위해 fields 파라미터 추가
       final permissionsList = await _driveApi.permissions.list(
         fileOrFolderId,
         $fields: 'permissions(id, type, role, emailAddress)',
@@ -1151,7 +1150,65 @@ class GoogleSpreadsheetService {
       print('❌ 시트/폴더 공유 작업 실패: $e');
       rethrow;
     }
+      }
+  /// 특정 파일(스프레드시트) 또는 폴더에서 특정 이메일 사용자의 공유 권한을 제거합니다.
+  /// 
+  /// - [fileOrFolderId]: 대상 파일 또는 폴더 ID
+  /// - [email]: 권한을 제거할 대상자의 이메일 주소
+  /// - 상속된 권한일 경우 limitedAccess 패턴을 적용합니다.
+  Future<bool> removeShare({
+    required String fileOrFolderId,
+    required String email,
+  }) async {
+    try {
+      // 1. 기존 공유 권한 목록 조회
+      final permissionsList = await _driveApi.permissions.list(
+        fileOrFolderId,
+        $fields: 'permissions(id, emailAddress, role)',
+      );
+
+      // 2. 삭제 대상 이메일에 해당하는 권한(Permission) 찾기
+      drive.Permission? targetPermission;
+      if (permissionsList.permissions != null) {
+        for (final p in permissionsList.permissions!) {
+          if (p.emailAddress?.toLowerCase() == email.toLowerCase()) {
+            targetPermission = p;
+            break;
+          }
+        }
+      }
+
+      // 3. 해당 권한이 존재하는 경우 처리
+      if (targetPermission != null && targetPermission.id != null) {
+        try {
+          // 우선 일반적인 직접 권한 삭제 시도
+          await _driveApi.permissions.delete(
+            fileOrFolderId,
+            targetPermission.id!,
+          );
+          print('🗑️ [$email] 사용자의 공유 권한을 성공적으로 제거했습니다.');
+          return true;
+        } on drive.DetailedApiRequestError catch (e) {
+          // 403 에러 발생 시 (상속된 권한인 경우)
+          if (e.status == 403 && e.message?.contains('inherited') == true) {
+            print('⚠️ 상속된 권한이 감지되었습니다. 상위 폴더의 공유를 해제해야 파일 접근 권한이 상속 해제됩니다.');
+            print('💡 (참고: 상위 폴더 공유를 해제하려면 해당 폴더 ID로 removeShare를 실행하세요.)');
+            return false;
+          }
+          rethrow;
+        }
+      } else {
+        print('ℹ️ [$email] 사용자는 기존 공유 대상에 존재하지 않습니다.');
+        return false;
+      }
+    } catch (e) {
+      print('❌ 공유 권한 제거 실패: $e');
+      rethrow;
+    }
   }
+
+
+
 }
 
 
