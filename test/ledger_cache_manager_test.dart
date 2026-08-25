@@ -2,9 +2,8 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:googleapis/drive/v3.dart' as drive;
 import 'package:mocktail/mocktail.dart';
 
-// Your LedgerCacheManager file import
+// Your LedgerCacheManager & Repositories file import
 import 'package:household_ledger/services/google_drive/google_spreadsheet.dart';
-
 
 // DriveApi Mocking 클래스 정의
 class MockDriveApi extends Mock implements drive.DriveApi {}
@@ -14,6 +13,8 @@ void main() {
   late LedgerCacheManager cacheManager;
   late MockDriveApi mockDriveApi;
   late MockFilesResource mockFilesResource;
+  late DriveFolderRepository folderRepo;
+  late DriveSheetRepository sheetRepo;
 
   setUp(() {
     cacheManager = LedgerCacheManager();
@@ -22,6 +23,10 @@ void main() {
 
     // driveApi.files 호출 시 mockFilesResource를 반환하도록 설정
     when(() => mockDriveApi.files).thenReturn(mockFilesResource);
+
+    // mockDriveApi를 사용하는 Repository 인스턴스 초기화
+    folderRepo = DriveFolderRepository(mockDriveApi);
+    sheetRepo = DriveSheetRepository(mockDriveApi);
   });
 
   group('LedgerCacheManager 단위 테스트', () {
@@ -67,8 +72,10 @@ void main() {
       );
 
       // driveApi.files.list 호출에 대한 행위 정의 (폴더 조회 -> 시트 조회 2회 호출)
-      when(() => mockFilesResource.list(q: any(named: 'q')))
-          .thenAnswer((invocation) async {
+      when(() => mockFilesResource.list(
+        q: any(named: 'q'),
+        $fields: any(named: '\$fields'),
+      )).thenAnswer((invocation) async {
         final query = invocation.namedArguments[#q] as String;
         if (query.contains("mimeType = 'application/vnd.google-apps.folder'")) {
           return mockFolderList;
@@ -77,8 +84,11 @@ void main() {
         }
       });
 
-      // Execute: 캐시 초기화 실행
-      await cacheManager.initializeAllSheets(mockDriveApi);
+      // initializeAllSheets 실행 (setUp에서 생성한 folderRepo, sheetRepo 전달)
+      await cacheManager.initializeAllSheets(
+        folderRepo: folderRepo,
+        sheetRepo: sheetRepo,
+      );
 
       // Verify: 결과 검증
       expect(cacheManager.isInitialized, isTrue);
@@ -98,7 +108,8 @@ void main() {
       when(() => mockFilesResource.create(any()))
           .thenAnswer((_) async => createdFolder);
 
-      final folderId = await cacheManager.getFolderId(mockDriveApi);
+      // mockDriveApi 대신 folderRepo 객체를 전달
+      final folderId = await cacheManager.getFolderId(folderRepo);
 
       expect(folderId, 'new_folder_999');
       expect(cacheManager.isInitialized, isTrue);

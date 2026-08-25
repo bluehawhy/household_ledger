@@ -9,29 +9,100 @@ import 'package:household_ledger/services/ledger_ingestion/text_parser_service.d
 import 'package:household_ledger/services/utils/app_logger.dart';
 
 // ============================================================================
-/// 가계부 구글 드라이브 폴더 및 연도별 시트 ID를 관리/캐싱하는 클래스
+/// 가계부 구글 드라이브 폴더 및 연도별 시트 ID 캐싱/관리 클래스
 // ============================================================================
 class LedgerCacheManager {
-  // Map 구조로 관리하여 여러 폴더를 다룰 때 발생할 수 있는 혼동 및 버그 방지
   final Map<String, String> _folderIdMap = {};
   final Map<int, String> _yearToSpreadsheetIdMap = {};
 
   bool get isInitialized => _folderIdMap.isNotEmpty;
 
-  // --------------------------------------------------------------------------
-  // 1️⃣ 공유받은 폴더 존재 여부 및 목록 확인
-  // 결과: Map<계정 이메일, 폴더 ID>
-  // --------------------------------------------------------------------------
-  Future<Map<String, String>> getSharedFolders(
-    drive.DriveApi driveApi, {
+  /// 폴더 ID 조회 및 캐싱 (Folder Repository 이용)
+  Future<String> getFolderId(
+    DriveFolderRepository folderRepo, {
+    String folderName = "가계부",
+  }) async {
+    if (!_folderIdMap.containsKey(folderName)) {
+      _folderIdMap[folderName] = await folderRepo.getOrCreateFolder(folderName);
+    }
+    return _folderIdMap[folderName]!;
+  }
+
+  /// 모든 연도별 시트 목록 스캔 및 캐싱 (Folder & Sheet Repository 이용)
+  Future<void> initializeAllSheets({
+    required DriveFolderRepository folderRepo,
+    required DriveSheetRepository sheetRepo,
+    String folderName = "가계부",
+  }) async {
+    final folderId = await getFolderId(folderRepo, folderName: folderName);
+    
+    final yearSheets = await sheetRepo.getYearlySpreadsheets(
+      folderId: folderId,
+      folderName: folderName,
+    );
+
+    _yearToSpreadsheetIdMap.clear();
+    _yearToSpreadsheetIdMap.addAll(yearSheets);
+
+    AppLogger.i("[$folderName] 연도별 시트 캐시 완료: $_yearToSpreadsheetIdMap");
+  }
+
+  /// 특정 연도의 시트 ID 가져오기 (캐시에서 읽기)
+  String? getSpreadsheetId(int year) => _yearToSpreadsheetIdMap[year];
+
+  /// 신규 생성된 연도 시트 ID 수동 등록
+  void registerSpreadsheetId(int year, String spreadsheetId) {
+    _yearToSpreadsheetIdMap[year] = spreadsheetId;
+  }
+
+  /// 캐시 전체 초기화
+  void clear() {
+    _folderIdMap.clear();
+    _yearToSpreadsheetIdMap.clear();
+  }
+}
+
+
+// ============================================================================
+/// 구글 드라이브 폴더 조회 및 생성 전담 클래스
+// ============================================================================
+class DriveFolderRepository {
+  final drive.DriveApi _driveApi;
+
+  DriveFolderRepository(this._driveApi);
+
+  /// 1️⃣ 내 드라이브에 특정 이름의 폴더가 있는지 확인하고, 없으면 생성 후 ID 반환
+  Future<String> getOrCreateFolder(String folderName) async {
+    AppLogger.i("📁 '$folderName' 폴더 확인 중...");
+    final query =
+        "name = '$folderName' and mimeType = 'application/vnd.google-apps.folder' and trashed = false";
+    
+    final result = await _driveApi.files.list(q: query);
+
+    if (result.files != null && result.files!.isNotEmpty) {
+      final id = result.files!.first.id!;
+      AppLogger.i("  └ 💡 기존 폴더 사용 (폴더 ID: $id)");
+      return id;
+    }
+
+    AppLogger.i("  └ ➕ '$folderName' 폴더가 없어 새로 생성합니다...");
+    final createdFolder = await _driveApi.files.create(
+      drive.File()
+        ..name = folderName
+        ..mimeType = 'application/vnd.google-apps.folder',
+    );
+    return createdFolder.id!;
+  }
+
+  /// 2️⃣ 나에게 공유된 폴더 목록 가져오기 (Map<계정 이메일, 폴더 ID>)
+  Future<Map<String, String>> getSharedFolders({
     required String folderName,
   }) async {
     final sharedFolderMap = <String, String>{};
-
     final query =
         "name = '$folderName' and mimeType = 'application/vnd.google-apps.folder' and sharedWithMe = true and trashed = false";
 
-    final result = await driveApi.files.list(
+    final result = await _driveApi.files.list(
       q: query,
       $fields: "files(id, name, owners/emailAddress)",
     );
@@ -50,20 +121,26 @@ class LedgerCacheManager {
     AppLogger.i("공유받은 '$folderName' 폴더 목록: $sharedFolderMap");
     return sharedFolderMap;
   }
+}
 
-  // --------------------------------------------------------------------------
-  // 2️⃣ 특정 폴더 내의 {파일명 : 시트 ID} 추출
-  // --------------------------------------------------------------------------
-  Future<Map<String, String>> getSpreadsheetsInFolder(
-    drive.DriveApi driveApi, {
+
+// ============================================================================
+/// 구글 드라이브 시트(스프레드시트) 조회 전담 클래스
+// ============================================================================
+class DriveSheetRepository {
+  final drive.DriveApi _driveApi;
+
+  DriveSheetRepository(this._driveApi);
+
+  /// 1️⃣ 특정 폴더 내의 모든 시트 목록 조회 ({파일명 : 시트 ID})
+  Future<Map<String, String>> getSpreadsheetsInFolder({
     required String folderId,
   }) async {
     final sheetMap = <String, String>{};
-
     final query =
         "'$folderId' in parents and mimeType = 'application/vnd.google-apps.spreadsheet' and trashed = false";
 
-    final fileList = await driveApi.files.list(
+    final fileList = await _driveApi.files.list(
       q: query,
       $fields: "files(id, name)",
     );
@@ -80,85 +157,26 @@ class LedgerCacheManager {
     return sheetMap;
   }
 
-  /// 앱 초기화 시 구글 드라이브의 특정 폴더 내 모든 연도별 시트 목록을 한 번에 스캔 및 캐싱
-  Future<void> initializeAllSheets(
-    drive.DriveApi driveApi, {
-    String folderName = "가계부",
+  /// 2️⃣ 특정 폴더 내에서 연도 패턴이 맞는 시트 목록만 파싱하여 가져오기 ({연도 : 시트 ID})
+  /// 예: '가계부_2024' -> 2024 : spreadsheetId
+  Future<Map<int, String>> getYearlySpreadsheets({
+    required String folderId,
+    required String folderName,
   }) async {
-    final folderId = await getFolderId(driveApi, folderName: folderName);
+    final sheetMap = await getSpreadsheetsInFolder(folderId: folderId);
+    final yearToIdMap = <int, String>{};
 
-    final query =
-        "'$folderId' in parents and mimeType = 'application/vnd.google-apps.spreadsheet' and trashed = false";
-    final fileList = await driveApi.files.list(q: query);
+    final regExp = RegExp(RegExp.escape(folderName) + r'_(\d{4})');
 
-    _yearToSpreadsheetIdMap.clear();
-
-    if (fileList.files != null) {
-      final regExp = RegExp(RegExp.escape(folderName) + r'_(\d{4})');
-
-      for (var file in fileList.files!) {
-        if (file.name != null && file.id != null) {
-          final match = regExp.firstMatch(file.name!);
-          if (match != null) {
-            final year = int.parse(match.group(1)!);
-            _yearToSpreadsheetIdMap[year] = file.id!;
-          }
-        }
+    sheetMap.forEach((fileName, fileId) {
+      final match = regExp.firstMatch(fileName);
+      if (match != null) {
+        final year = int.parse(match.group(1)!);
+        yearToIdMap[year] = fileId;
       }
-    }
-    AppLogger.i("[$folderName] 연도별 시트 캐시 완료: $_yearToSpreadsheetIdMap");
-  }
+    });
 
-  /// 특정 연도의 시트 ID 가져오기 (캐시에 존재하면 API 호출 없이 반환)
-  String? getSpreadsheetId(int year) {
-    return _yearToSpreadsheetIdMap[year];
-  }
-
-  /// 신규 생성된 연도 시트 ID 등록
-  void registerSpreadsheetId(int year, String spreadsheetId) {
-    _yearToSpreadsheetIdMap[year] = spreadsheetId;
-  }
-
-  /// 폴더 ID 반환 (Map 기반 캐싱 적용)
-  Future<String> getFolderId(
-    drive.DriveApi driveApi, {
-    String folderName = "가계부",
-  }) async {
-    if (!_folderIdMap.containsKey(folderName)) {
-      _folderIdMap[folderName] = await _getOrCreateFolder(driveApi, folderName);
-    }
-    return _folderIdMap[folderName]!;
-  }
-
-  /// 폴더 생성/조회 헬퍼
-  Future<String> _getOrCreateFolder(
-    drive.DriveApi driveApi,
-    String folderName,
-  ) async {
-    AppLogger.i("📁 '$folderName' 폴더 확인 중...");
-    final query =
-        "name = '$folderName' and mimeType = 'application/vnd.google-apps.folder' and trashed = false";
-    final result = await driveApi.files.list(q: query);
-
-    if (result.files != null && result.files!.isNotEmpty) {
-      final id = result.files!.first.id!;
-      AppLogger.i("  └ 💡 기존 폴더 사용 (폴더 ID: $id)");
-      return id;
-    }
-
-    AppLogger.i("  └ ➕ '$folderName' 폴더가 없어 새로 생성합니다...");
-    final createdFolder = await driveApi.files.create(
-      drive.File()
-        ..name = folderName
-        ..mimeType = 'application/vnd.google-apps.folder',
-    );
-    return createdFolder.id!;
-  }
-
-  /// 캐시 초기화
-  void clear() {
-    _folderIdMap.clear();
-    _yearToSpreadsheetIdMap.clear();
+    return yearToIdMap;
   }
 }
 

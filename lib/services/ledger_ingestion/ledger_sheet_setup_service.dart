@@ -13,7 +13,7 @@ class LedgerSheetSetupService {
   final CategoryMapper categoryMapper = CategoryMapper();
   final LedgerCacheManager cacheManager = LedgerCacheManager();
   final Map<int, Future<String?>> _spreadsheetInitFutures = {};
-
+  
   /// 서비스 초기화 시 JSON 설정 파일 및 구글 드라이브 시트 목록 사전 스캔
   Future<void> init(
     AuthClient client, [
@@ -21,7 +21,16 @@ class LedgerSheetSetupService {
   ]) async {
     await categoryMapper.loadCategoryJson(filePath);
     final driveApi = drive.DriveApi(client);
-    await cacheManager.initializeAllSheets(driveApi);
+
+    // 1. 리팩터링된 Repository 객체 생성
+    final folderRepo = DriveFolderRepository(driveApi);
+    final sheetRepo = DriveSheetRepository(driveApi);
+
+    // 2. Repository 전달
+    await cacheManager.initializeAllSheets(
+      folderRepo: folderRepo,
+      sheetRepo: sheetRepo,
+    );
   }
 
   /// 특정 연도 가계부 설정 (타 계정용 등 생성 방지 옵션 createIfNotFound 추가)
@@ -70,7 +79,11 @@ class LedgerSheetSetupService {
     final driveApi = drive.DriveApi(client);
     final sheetsApi = sheets.SheetsApi(client);
 
-    final folderId = await cacheManager.getFolderId(driveApi);
+    // 1. DriveFolderRepository 객체 생성
+    final folderRepo = DriveFolderRepository(driveApi);
+
+    // 2. folderRepo를 전달
+    final folderId = await cacheManager.getFolderId(folderRepo);
     final fileName = "가계부_$year";
 
     return await _getOrCreateSpreadsheet(
