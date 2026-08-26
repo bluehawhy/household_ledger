@@ -4,7 +4,7 @@ import 'package:googleapis/drive/v3.dart' as drive;
 // 💡 프로젝트 내부 서비스 import
 import 'package:household_ledger/services/auth/google_auth_dart.dart';
 import 'package:household_ledger/services/auth/google_auth_stub.dart';
-import 'package:household_ledger/services/google_drive/google_spreadsheet.dart';
+import 'package:household_ledger/services/google_drive/google_drive_spreadsheet.dart';
 
 void main() async {
   print("--------------------------------------------------");

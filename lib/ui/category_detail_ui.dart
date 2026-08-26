@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:googleapis_auth/googleapis_auth.dart';
 import 'package:intl/intl.dart';
-import 'package:household_ledger/services/google_drive/google_spreadsheet.dart';
+import 'package:household_ledger/services/google_drive/google_drive_spreadsheet.dart';
 import 'package:household_ledger/services/ledger_ingestion/ledger_item.dart';
 import 'package:household_ledger/ui/an_item_detail_ui.dart';
 

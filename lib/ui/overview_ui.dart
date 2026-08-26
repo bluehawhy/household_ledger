@@ -7,7 +7,7 @@ import 'package:intl/intl.dart';
 
 // 서비스 및 UI 클래스 임포트
 import 'package:household_ledger/services/auth/google_auth.dart';
-import 'package:household_ledger/services/google_drive/google_spreadsheet.dart';
+import 'package:household_ledger/services/google_drive/google_drive_spreadsheet.dart';
 import 'package:household_ledger/services/ledger_ingestion/ledger_item.dart';
 
 import 'package:household_ledger/ui/ledger_ingestion_ui.dart';

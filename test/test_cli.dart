@@ -3,7 +3,8 @@ import 'package:googleapis/sheets/v4.dart' as sheets;
 // 💡 프로젝트 내부 서비스 import
 import 'package:household_ledger/services/auth/google_auth_dart.dart';
 import 'package:household_ledger/services/auth/google_auth_stub.dart';
-import 'package:household_ledger/services/google_drive/google_spreadsheet.dart';
+import 'package:household_ledger/services/google_drive/google_drive_spreadsheet.dart';
+import 'package:household_ledger/services/google_drive/google_drive_folder.dart';
 import 'package:household_ledger/services/ledger_ingestion/ledger_item.dart';
 
 void main() async {

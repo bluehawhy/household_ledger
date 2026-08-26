@@ -3,7 +3,8 @@ import 'package:googleapis/drive/v3.dart' as drive;
 import 'package:mocktail/mocktail.dart';
 
 // Your LedgerCacheManager & Repositories file import
-import 'package:household_ledger/services/google_drive/google_spreadsheet.dart';
+import 'package:household_ledger/services/google_drive/google_drive_spreadsheet.dart';
+import 'package:household_ledger/services/google_drive/google_drive_folder.dart';
 
 // DriveApi Mocking 클래스 정의
 class MockDriveApi extends Mock implements drive.DriveApi {}
