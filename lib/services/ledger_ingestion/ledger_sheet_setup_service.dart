@@ -1,6 +1,7 @@
 import 'package:googleapis/drive/v3.dart' as drive;
 import 'package:googleapis/sheets/v4.dart' as sheets;
 import 'package:googleapis_auth/googleapis_auth.dart';
+import 'package:household_ledger/services/google_drive/google_drive_cache.dart';
 import 'package:household_ledger/services/google_drive/google_drive_folder.dart';
 import 'package:household_ledger/services/google_drive/google_drive_spreadsheet.dart';
 import 'package:household_ledger/services/ledger_ingestion/ledger_item.dart';
@@ -69,32 +70,40 @@ class LedgerSheetSetupService {
   }
 
   Future<String?> _setupLedgerSpreadsheetForYearInternal(
-    AuthClient client,
-    int year, {
-    required bool createIfNotFound,
-  }) async {
-    if (!categoryMapper.isLoaded) {
-      await categoryMapper.loadCategoryJson();
+      AuthClient client,
+      int year, {
+      required bool createIfNotFound,
+    }) async {
+      if (!categoryMapper.isLoaded) {
+        await categoryMapper.loadCategoryJson();
+      }
+
+      final driveApi = drive.DriveApi(client);
+      final sheetsApi = sheets.SheetsApi(client);
+
+      // 1. DriveFolderRepository 객체 생성
+      final folderRepo = DriveFolderRepository(driveApi);
+
+      // 2. folderRepo를 전달하여 폴더 ID 조회
+      final folderId = await cacheManager.getFolderId(folderRepo);
+      
+      // 💡 폴더 ID가 null인 경우(폴더를 찾거나 생성하지 못한 경우) 예외 처리 추가
+      if (folderId == null) {
+        AppLogger.e("가계부 폴더 ID를 가져오는 데 실패했습니다.");
+        return null; // 또는 throw Exception("가계부 폴더를 찾을 수 없습니다.");
+      }
+
+      final fileName = "가계부_$year";
+
+      // 이제 folderId는 String 타입으로 스마트 캐스팅되어 에러가 해결됩니다.
+      return await _getOrCreateSpreadsheet(
+        driveApi,
+        sheetsApi,
+        folderId, 
+        fileName,
+        createIfNotFound: createIfNotFound,
+      );
     }
-
-    final driveApi = drive.DriveApi(client);
-    final sheetsApi = sheets.SheetsApi(client);
-
-    // 1. DriveFolderRepository 객체 생성
-    final folderRepo = DriveFolderRepository(driveApi);
-
-    // 2. folderRepo를 전달
-    final folderId = await cacheManager.getFolderId(folderRepo);
-    final fileName = "가계부_$year";
-
-    return await _getOrCreateSpreadsheet(
-      driveApi,
-      sheetsApi,
-      folderId,
-      fileName,
-      createIfNotFound: createIfNotFound,
-    );
-  }
 
   Future<String?> _getOrCreateSpreadsheet(
     drive.DriveApi driveApi,

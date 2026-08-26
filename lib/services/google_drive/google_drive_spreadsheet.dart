@@ -7,63 +7,6 @@ import 'package:household_ledger/services/ledger_ingestion/ledger_item.dart';
 import 'package:household_ledger/services/ledger_ingestion/ledger_sheet_setup_service.dart';
 import 'package:household_ledger/services/ledger_ingestion/text_parser_service.dart';
 import 'package:household_ledger/services/utils/app_logger.dart';
-import 'package:household_ledger/services/google_drive/google_drive_folder.dart';
-
-// ============================================================================
-/// 가계부 구글 드라이브 폴더 및 연도별 시트 ID 캐싱/관리 클래스
-// ============================================================================
-class LedgerCacheManager {
-  final Map<String, String> _folderIdMap = {};
-  final Map<int, String> _yearToSpreadsheetIdMap = {};
-
-  bool get isInitialized => _folderIdMap.isNotEmpty;
-
-  /// 폴더 ID 조회 및 캐싱 (Folder Repository 이용)
-  Future<String> getFolderId(
-    DriveFolderRepository folderRepo, {
-    String folderName = "가계부",
-  }) async {
-    if (!_folderIdMap.containsKey(folderName)) {
-      _folderIdMap[folderName] = await folderRepo.getOrCreateFolder(folderName);
-    }
-    return _folderIdMap[folderName]!;
-  }
-
-  /// 모든 연도별 시트 목록 스캔 및 캐싱 (Folder & Sheet Repository 이용)
-  Future<void> initializeAllSheets({
-    required DriveFolderRepository folderRepo,
-    required DriveSheetRepository sheetRepo,
-    String folderName = "가계부",
-  }) async {
-    final folderId = await getFolderId(folderRepo, folderName: folderName);
-    
-    final yearSheets = await sheetRepo.getYearlySpreadsheets(
-      folderId: folderId,
-      folderName: folderName,
-    );
-
-    _yearToSpreadsheetIdMap.clear();
-    _yearToSpreadsheetIdMap.addAll(yearSheets);
-
-    AppLogger.i("[$folderName] 연도별 시트 캐시 완료: $_yearToSpreadsheetIdMap");
-  }
-
-  /// 특정 연도의 시트 ID 가져오기 (캐시에서 읽기)
-  String? getSpreadsheetId(int year) => _yearToSpreadsheetIdMap[year];
-
-  /// 신규 생성된 연도 시트 ID 수동 등록
-  void registerSpreadsheetId(int year, String spreadsheetId) {
-    _yearToSpreadsheetIdMap[year] = spreadsheetId;
-  }
-
-  /// 캐시 전체 초기화
-  void clear() {
-    _folderIdMap.clear();
-    _yearToSpreadsheetIdMap.clear();
-  }
-}
-
-
 
 // ============================================================================
 /// 구글 드라이브 시트(스프레드시트) 조회 전담 클래스
