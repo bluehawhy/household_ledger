@@ -11,11 +11,11 @@ import 'package:household_ledger/services/utils/app_logger.dart';
 // ============================================================================
 // 📊 가계부 구글 드라이브 및 스프레드시트 통합 관리 서비스 클래스
 // ============================================================================
-class LedgerSheetSetupService {
-  final CategoryMapper categoryMapper = CategoryMapper();
+class SpreadsheetService {
+final CategoryMapper categoryMapper = CategoryMapper();
   final LedgerCacheManager cacheManager = LedgerCacheManager();
   final Map<int, Future<String?>> _spreadsheetInitFutures = {};
-  
+
   /// 서비스 초기화 시 JSON 설정 파일 및 구글 드라이브 시트 목록 사전 스캔
   Future<void> init(
     AuthClient client, [
@@ -80,38 +80,59 @@ class LedgerSheetSetupService {
 
       final driveApi = drive.DriveApi(client);
       final sheetsApi = sheets.SheetsApi(client);
-
-      // 1. DriveFolderRepository 객체 생성
       final folderRepo = DriveFolderRepository(driveApi);
 
-      // 2. folderRepo를 전달하여 폴더 ID 조회
-      final folderId = await cacheManager.getFolderId(folderRepo);
-      
-      // 💡 폴더 ID가 null인 경우(폴더를 찾거나 생성하지 못한 경우) 예외 처리 추가
+      const folderName = "가계부";
+      String? folderId;
+
+      // 1. 기존 폴더 조회
+      folderId = await folderRepo.getFolderId(folderName);
+
+      // 2. 폴더가 없고 createIfNotFound가 false인 경우 (타 계정 등) 진행 불가
+      if (folderId == null && !createIfNotFound) {
+        AppLogger.i("⚠️ '$folderName' 폴더가 존재하지 않으며, 타 계정이므로 신규 폴더 및 파일 생성을 진행하지 않습니다.");
+        return null;
+      }
+
+      // 3. 폴더가 없는 경우 내 계정이면 신규 생성
       if (folderId == null) {
-        AppLogger.e("가계부 폴더 ID를 가져오는 데 실패했습니다.");
-        return null; // 또는 throw Exception("가계부 폴더를 찾을 수 없습니다.");
+        try {
+          folderId = await folderRepo.createFolder(folderName);
+        } catch (e) {
+          AppLogger.e("가계부 폴더 생성에 실패했습니다: $e");
+          return null;
+        }
       }
 
       final fileName = "가계부_$year";
 
-      // 이제 folderId는 String 타입으로 스마트 캐스팅되어 에러가 해결됩니다.
-      return await _getOrCreateSpreadsheet(
+      // 4. 기존 스프레드시트 조회
+      final existingId = await _getSpreadsheet(driveApi, folderId, fileName);
+      if (existingId != null) {
+        return existingId;
+      }
+
+      // 5. 스프레드시트가 없고 createIfNotFound가 false인 경우 생성하지 않음
+      if (!createIfNotFound) {
+        AppLogger.i("⚠️ '$fileName' 파일이 존재하지 않으며, 타 계정이므로 신규 생성을 진행하지 않습니다.");
+        return null;
+      }
+
+      // 6. 신규 스프레드시트 생성
+      return await _createSpreadsheet(
         driveApi,
         sheetsApi,
-        folderId, 
+        folderId,
         fileName,
-        createIfNotFound: createIfNotFound,
       );
     }
 
-  Future<String?> _getOrCreateSpreadsheet(
+  /// 🔍 1. 기존 스프레드시트 파일 ID 조회
+  Future<String?> _getSpreadsheet(
     drive.DriveApi driveApi,
-    sheets.SheetsApi sheetsApi,
     String folderId,
-    String fileName, {
-    required bool createIfNotFound,
-  }) async {
+    String fileName,
+  ) async {
     AppLogger.i("📊 '$fileName' 파일 확인 중...");
 
     final query =
@@ -124,12 +145,16 @@ class LedgerSheetSetupService {
       return id;
     }
 
-    // 💡 타 계정 접근 시 시트가 없는 경우 새로 생성하지 않고 null 반환
-    if (!createIfNotFound) {
-      AppLogger.i("⚠️ '$fileName' 파일이 존재하지 않으며, 타 계정이므로 신규 생성을 진행하지 않습니다.");
-      return null;
-    }
+    return null;
+  }
 
+  /// ➕ 2. 신규 스프레드시트 생성 및 초기 세팅
+  Future<String> _createSpreadsheet(
+    drive.DriveApi driveApi,
+    sheets.SheetsApi sheetsApi,
+    String folderId,
+    String fileName,
+  ) async {
     AppLogger.i("  └ ➕ '$fileName' 파일이 없어 새 시트를 생성합니다...");
 
     final List<sheets.Sheet> sheetsList = [
@@ -284,4 +309,3 @@ class LedgerSheetSetupService {
     );
   }
 }
-

@@ -93,10 +93,10 @@ class LedgerSubmitResult {
 // 💳 가계부 거래 데이터 CRUD 서비스
 // ============================================================================
 class LedgerDataService {
-  final LedgerSheetSetupService sheetSetupService;
+  final SpreadsheetService sheetSetupService;
 
-  LedgerDataService({LedgerSheetSetupService? sheetSetupService})
-      : sheetSetupService = sheetSetupService ?? LedgerSheetSetupService();
+  LedgerDataService({SpreadsheetService? sheetSetupService})
+      : sheetSetupService = sheetSetupService ?? SpreadsheetService();
 
   CategoryMapper get categoryMapper => sheetSetupService.categoryMapper;
 
@@ -640,7 +640,7 @@ class LedgerDataService {
   }
 }
 
-@Deprecated('Use LedgerSheetSetupService and LedgerDataService instead')
+@Deprecated('Use SpreadsheetService and LedgerDataService instead')
 class HouseholdSheetService extends LedgerDataService {}
 
 
