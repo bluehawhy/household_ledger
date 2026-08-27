@@ -25,8 +25,8 @@ final CategoryMapper categoryMapper = CategoryMapper();
     final driveApi = drive.DriveApi(client);
 
     // 1. 리팩터링된 Repository 객체 생성
-    final folderRepo = DriveFolderRepository(driveApi);
-    final sheetRepo = DriveSheetRepository(driveApi);
+    final folderRepo = DriveFolderService(driveApi);
+    final sheetRepo = SpreadSheetService(driveApi);
 
     // 2. Repository 전달
     await cacheManager.initializeAllSheets(
@@ -80,7 +80,7 @@ final CategoryMapper categoryMapper = CategoryMapper();
 
       final driveApi = drive.DriveApi(client);
       final sheetsApi = sheets.SheetsApi(client);
-      final folderRepo = DriveFolderRepository(driveApi);
+      final folderRepo = DriveFolderService(driveApi);
 
       const folderName = "가계부";
       String? folderId;

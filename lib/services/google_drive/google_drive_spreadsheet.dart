@@ -9,12 +9,12 @@ import 'package:household_ledger/services/ledger_ingestion/text_parser_service.d
 import 'package:household_ledger/services/utils/app_logger.dart';
 
 // ============================================================================
-/// 구글 드라이브 시트(스프레드시트) 조회 전담 클래스
+/// 📊 구글 드라이브 & 스프레드시트 관리 전담 서비스
 // ============================================================================
-class DriveSheetRepository {
+class SpreadSheetService {
   final drive.DriveApi _driveApi;
 
-  DriveSheetRepository(this._driveApi);
+  SpreadSheetService(this._driveApi);
 
   /// 1️⃣ 특정 폴더 내의 모든 시트 목록 조회 ({파일명 : 시트 ID})
   Future<Map<String, String>> getSpreadsheetsInFolder({
@@ -62,14 +62,182 @@ class DriveSheetRepository {
 
     return yearToIdMap;
   }
+
+  /// 3️⃣ 특정 스프레드시트(파일)를 특정 이메일 사용자와 공유
+  Future<drive.Permission> shareSpreadsheet({
+    required String spreadsheetId,
+    required String email,
+    String role = 'writer', // 기본값: 편집자 권한
+    bool sendNotificationEmail = true,
+  }) async {
+    try {
+      // 기존 공유 권한 목록 조회
+      final permissionsList = await _driveApi.permissions.list(
+        spreadsheetId,
+        $fields: 'permissions(id, type, role, emailAddress)',
+      );
+
+      // 입력된 이메일과 일치하는 기존 권한 찾기
+      drive.Permission? existingPermission;
+      if (permissionsList.permissions != null) {
+        for (final p in permissionsList.permissions!) {
+          if (p.emailAddress?.toLowerCase() == email.toLowerCase()) {
+            existingPermission = p;
+            break;
+          }
+        }
+      }
+
+      if (existingPermission != null) {
+        if (existingPermission.role == role) {
+          AppLogger.i('ℹ️ [$email] 사용자에게 이미 동일한 시트 권한($role)이 부여되어 있습니다.');
+          return existingPermission;
+        }
+
+        AppLogger.i('🔄 [$email] 기존 시트 권한(${existingPermission.role})을 새 권한($role)으로 업데이트합니다.');
+        final updatedPermission = drive.Permission()..role = role;
+
+        final result = await _driveApi.permissions.update(
+          updatedPermission,
+          spreadsheetId,
+          existingPermission.id!,
+        );
+
+        AppLogger.i('✅ 시트 권한 업데이트 성공: ${result.id} ($email -> $role)');
+        return result;
+      }
+
+      AppLogger.i('➕ [$email] 새 스프레드시트 공유 권한($role)을 생성합니다.');
+      final newPermission = drive.Permission()
+        ..type = 'user'
+        ..role = role
+        ..emailAddress = email;
+
+      final result = await _driveApi.permissions.create(
+        newPermission,
+        spreadsheetId,
+        sendNotificationEmail: sendNotificationEmail,
+      );
+
+      AppLogger.i('✅ 성공적으로 스프레드시트가 공유되었습니다: ${result.id} ($email -> $role)');
+      return result;
+    } catch (e) {
+      AppLogger.e('❌ 스프레드시트 공유 작업 실패: $e');
+      rethrow;
+    }
+  }
+
+  /// 4️⃣ 스프레드시트 삭제
+  Future<void> deleteSpreadsheet(String spreadsheetId) async {
+    AppLogger.i("  └ 🗑️ ID '$spreadsheetId' 스프레드시트를 삭제합니다...");
+    try {
+      await _driveApi.files.delete(spreadsheetId);
+      AppLogger.i("  └ ✅ 스프레드시트 삭제 성공 (ID: $spreadsheetId)");
+    } catch (e) {
+      AppLogger.e("  └ ❌ 스프레드시트 삭제 실패 (ID: $spreadsheetId): $e");
+      rethrow;
+    }
+  }
+
+  /// 5️⃣ 특정 스프레드시트에서 특정 이메일 사용자의 공유 권한 제거
+  Future<bool> removeSpreadsheetShare({
+    required String spreadsheetId,
+    required String email,
+  }) async {
+    try {
+      final permissionsList = await _driveApi.permissions.list(
+        spreadsheetId,
+        $fields: 'permissions(id, emailAddress, role)',
+      );
+
+      drive.Permission? targetPermission;
+      if (permissionsList.permissions != null) {
+        for (final p in permissionsList.permissions!) {
+          if (p.emailAddress?.toLowerCase() == email.toLowerCase()) {
+            targetPermission = p;
+            break;
+          }
+        }
+      }
+
+      if (targetPermission != null && targetPermission.id != null) {
+        try {
+          await _driveApi.permissions.delete(
+            spreadsheetId,
+            targetPermission.id!,
+          );
+          AppLogger.i('🗑️ [$email] 사용자의 스프레드시트 공유 권한을 성공적으로 제거했습니다.');
+          return true;
+        } on drive.DetailedApiRequestError catch (e) {
+          if (e.status == 403 && e.message?.contains('inherited') == true) {
+            AppLogger.i('⚠️ 상속된 권한이 감지되었습니다. 상위 폴더의 공유를 해제해야 합니다.');
+            return false;
+          }
+          rethrow;
+        }
+      } else {
+        AppLogger.i('ℹ️ [$email] 사용자는 해당 스프레드시트의 직접 공유 대상에 존재하지 않습니다.');
+        return false;
+      }
+    } catch (e) {
+      AppLogger.e('❌ 스프레드시트 공유 권한 제거 실패: $e');
+      rethrow;
+    }
+  }
+
+  /// 6️⃣ 특정 파일 또는 폴더에서 특정 이메일 사용자의 공유 권한 제거
+  Future<bool> removeShare({
+    required String fileOrFolderId,
+    required String email,
+  }) async {
+    try {
+      final permissionsList = await _driveApi.permissions.list(
+        fileOrFolderId,
+        $fields: 'permissions(id, emailAddress, role)',
+      );
+
+      drive.Permission? targetPermission;
+      if (permissionsList.permissions != null) {
+        for (final p in permissionsList.permissions!) {
+          if (p.emailAddress?.toLowerCase() == email.toLowerCase()) {
+            targetPermission = p;
+            break;
+          }
+        }
+      }
+
+      if (targetPermission != null && targetPermission.id != null) {
+        try {
+          await _driveApi.permissions.delete(
+            fileOrFolderId,
+            targetPermission.id!,
+          );
+          AppLogger.i('🗑️ [$email] 사용자의 공유 권한을 성공적으로 제거했습니다.');
+          return true;
+        } on drive.DetailedApiRequestError catch (e) {
+          if (e.status == 403 && e.message?.contains('inherited') == true) {
+            AppLogger.i('⚠️ 상속된 권한이 감지되었습니다. 상위 폴더의 공유를 해제해야 파일 접근 권한이 해제됩니다.');
+            return false;
+          }
+          rethrow;
+        }
+      } else {
+        AppLogger.i('ℹ️ [$email] 사용자는 기존 공유 대상에 존재하지 않습니다.');
+        return false;
+      }
+    } catch (e) {
+      AppLogger.e('❌ 공유 권한 제거 실패: $e');
+      rethrow;
+    }
+  }
 }
 
+// ============================================================================
+// TODO: 추후 별도 '시트 입력/데이터 서비스' 파일로 분리될 영역
+// ============================================================================
 
 // ============================================================================
-// 스프레드시트 내 데이터 전달
-// ============================================================================
-// ============================================================================
-// 데이터 전달 클래스 및 수집 서비스
+// 📝 데이터 전달 결과 클래스
 // ============================================================================
 class LedgerSubmitResult {
   final bool isSuccess;
@@ -108,9 +276,7 @@ class LedgerDataService {
     await sheetSetupService.init(client);
   }
 
-  // ==========================================================================
   // 🔵 단일 항목 입력 로직
-  // ==========================================================================
   Future<bool> addTransaction({
     required AuthClient client,
     required LedgerItem item,
@@ -146,7 +312,6 @@ class LedgerDataService {
     final monthSheetName = '${updatedItem.date.month}월';
     await _ensureMonthSheetExists(sheetsApi, targetSpreadsheetId, monthSheetName);
 
-    // 기존 데이터 읽어서 중복 여부 확인
     final range = "'$monthSheetName'!A1:G1000";
     final response = await sheetsApi.spreadsheets.values.get(
       targetSpreadsheetId,
@@ -168,9 +333,7 @@ class LedgerDataService {
     );
   }
 
-  // ==========================================================================
   // 🟡 수입 / 지출 내역 수정(업데이트) 로직
-  // ==========================================================================
   Future<bool> updateTransaction({
     required AuthClient client,
     required LedgerItem oldItem,
@@ -249,10 +412,10 @@ class LedgerDataService {
         updatedNewItem.formattedDate,
         isIncome ? "수입" : "지출",
         updatedNewItem.payMethod ?? "-",
-        updatedNewItem.category ?? "미분류",
+        updatedNewItem.category,
         updatedNewItem.description,
         updatedNewItem.amount,
-        updatedNewItem.memo ?? "",
+        updatedNewItem.memo,
       ];
 
       final targetRange = "'$monthSheetName'!A$targetRowIndex:G$targetRowIndex";
@@ -322,10 +485,10 @@ class LedgerDataService {
           item.formattedDate,
           isIncome ? "수입" : "지출",
           item.payMethod ?? "-",
-          item.category ?? (isIncome ? '주수입' : '미분류'),
+          item.category,
           item.description,
           item.amount,
-          item.memo ?? "",
+          item.memo,
         ]);
       }
 
@@ -521,10 +684,7 @@ class LedgerDataService {
     }
   }
 
-  // ==========================================================================
-  // 🟢 [기능 C] 월별 수입 / 지출 내역 조회 로직
-  // ==========================================================================
-
+  // 🟢 월별 수입 / 지출 내역 조회 로직
   Future<List<LedgerItem>> getMonthlyExpenses({
     required AuthClient client,
     required int year,
@@ -551,7 +711,6 @@ class LedgerDataService {
     );
   }
 
-  /// 특정 연월의 수입 또는 지출 내역 리스트 조회
   Future<List<LedgerItem>> getMonthlyTransactions({
     required AuthClient client,
     required int year,
@@ -562,7 +721,6 @@ class LedgerDataService {
     return allItems.where((item) => item.type == type).toList();
   }
 
-  /// 특정 연월의 전체 거래 내역(수입 + 지출) 단일 진실 공급원(Single Source of Truth)
   Future<List<LedgerItem>> getMonthlyLedger({
     required AuthClient client,
     required int year,
@@ -643,7 +801,9 @@ class LedgerDataService {
 @Deprecated('Use SpreadsheetService and LedgerDataService instead')
 class HouseholdSheetService extends LedgerDataService {}
 
-
+// ============================================================================
+// 📥 텍스트 분석 및 섭취(Ingestion) 서비스
+// ============================================================================
 class LedgerIngestionService {
   final TextParserService _textParserService = TextParserService();
 
@@ -723,150 +883,3 @@ class LedgerIngestionService {
     }
   }
 }
-
-
-class GoogleSpreadsheetService {
-  final drive.DriveApi _driveApi;
-
-  GoogleSpreadsheetService(AuthClient client)
-      : _driveApi = drive.DriveApi(client);
-
-  /// 특정 파일(스프레드시트) 또는 폴더를 특정 이메일 사용자와 공유합니다.
-  /// 
-  /// - 이미 동일한 권한이 존재하는 경우: API 호출을 생략하고 기존 권한 객체를 반환합니다.
-  /// - 권한 변경이 필요한 경우: [permissions.update]를 수행합니다.
-  /// - 기존 권한이 없는 경우: [permissions.create]로 새로운 권한을 생성합니다.
-  Future<drive.Permission> shareFileOrFolder({
-    required String fileOrFolderId,
-    required String email,
-    String role = 'writer', // 기본값: 편집자 권한
-    bool sendNotificationEmail = true,
-  }) async {
-    try {
-      // 1. 기존 공유 권한 목록 조회
-      final permissionsList = await _driveApi.permissions.list(
-        fileOrFolderId,
-        $fields: 'permissions(id, type, role, emailAddress)',
-      );
-
-      // 2. 입력된 이메일과 일치하는 기존 권한 찾기
-      drive.Permission? existingPermission;
-      if (permissionsList.permissions != null) {
-        for (final p in permissionsList.permissions!) {
-          if (p.emailAddress?.toLowerCase() == email.toLowerCase()) {
-            existingPermission = p;
-            break;
-          }
-        }
-      }
-
-      // 3. 기존 권한 상태에 따른 조건부 처리
-      if (existingPermission != null) {
-        // CASE 3-1: 동일한 권한이 이미 존재 -> 생략
-        if (existingPermission.role == role) {
-          print('ℹ️ [$email] 사용자에게 이미 동일한 권한($role)이 부여되어 있습니다. 공유를 생략합니다.');
-          return existingPermission;
-        }
-
-        // CASE 3-2: 권한 수준 변경 필요 -> update 호출
-        print('🔄 [$email] 기존 권한(${existingPermission.role})을 새 권한($role)으로 업데이트합니다.');
-        final updatedPermission = drive.Permission()..role = role;
-
-        final result = await _driveApi.permissions.update(
-          updatedPermission,
-          fileOrFolderId,
-          existingPermission.id!,
-        );
-
-        print('✅ 권한 업데이트 성공: ${result.id} ($email -> $role)');
-        return result;
-      }
-
-      // CASE 3-3: 기존 권한 없음 -> 새로 생성
-      print('➕ [$email] 새 사용자 공유 권한($role)을 생성합니다.');
-      final newPermission = drive.Permission()
-        ..type = 'user'
-        ..role = role
-        ..emailAddress = email;
-
-      final result = await _driveApi.permissions.create(
-        newPermission,
-        fileOrFolderId,
-        sendNotificationEmail: sendNotificationEmail,
-      );
-
-      print('✅ 성공적으로 공유되었습니다: ${result.id} ($email -> $role)');
-      return result;
-
-    } catch (e) {
-      print('❌ 시트/폴더 공유 작업 실패: $e');
-      rethrow;
-    }
-      }
-  /// 특정 파일(스프레드시트) 또는 폴더에서 특정 이메일 사용자의 공유 권한을 제거합니다.
-  /// 
-  /// - [fileOrFolderId]: 대상 파일 또는 폴더 ID
-  /// - [email]: 권한을 제거할 대상자의 이메일 주소
-  /// - 상속된 권한일 경우 limitedAccess 패턴을 적용합니다.
-  Future<bool> removeShare({
-    required String fileOrFolderId,
-    required String email,
-  }) async {
-    try {
-      // 1. 기존 공유 권한 목록 조회
-      final permissionsList = await _driveApi.permissions.list(
-        fileOrFolderId,
-        $fields: 'permissions(id, emailAddress, role)',
-      );
-
-      // 2. 삭제 대상 이메일에 해당하는 권한(Permission) 찾기
-      drive.Permission? targetPermission;
-      if (permissionsList.permissions != null) {
-        for (final p in permissionsList.permissions!) {
-          if (p.emailAddress?.toLowerCase() == email.toLowerCase()) {
-            targetPermission = p;
-            break;
-          }
-        }
-      }
-
-      // 3. 해당 권한이 존재하는 경우 처리
-      if (targetPermission != null && targetPermission.id != null) {
-        try {
-          // 우선 일반적인 직접 권한 삭제 시도
-          await _driveApi.permissions.delete(
-            fileOrFolderId,
-            targetPermission.id!,
-          );
-          print('🗑️ [$email] 사용자의 공유 권한을 성공적으로 제거했습니다.');
-          return true;
-        } on drive.DetailedApiRequestError catch (e) {
-          // 403 에러 발생 시 (상속된 권한인 경우)
-          if (e.status == 403 && e.message?.contains('inherited') == true) {
-            print('⚠️ 상속된 권한이 감지되었습니다. 상위 폴더의 공유를 해제해야 파일 접근 권한이 상속 해제됩니다.');
-            print('💡 (참고: 상위 폴더 공유를 해제하려면 해당 폴더 ID로 removeShare를 실행하세요.)');
-            return false;
-          }
-          rethrow;
-        }
-      } else {
-        print('ℹ️ [$email] 사용자는 기존 공유 대상에 존재하지 않습니다.');
-        return false;
-      }
-    } catch (e) {
-      print('❌ 공유 권한 제거 실패: $e');
-      rethrow;
-    }
-  }
-
-
-
-}
-
-
-
-
-
-
-
-

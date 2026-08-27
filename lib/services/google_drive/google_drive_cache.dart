@@ -17,7 +17,7 @@ class LedgerCacheManager {
 
   /// 1️⃣ 특정 계정의 특정 폴더 ID 조회 (없으면 드라이브에서 가져와서 캐싱)
   Future<String?> getFolderId(
-    DriveFolderRepository folderRepo, {
+    DriveFolderService folderRepo, {
     String accountEmail = 'me',
     String folderName = "가계부",
   }) async {
@@ -35,7 +35,7 @@ class LedgerCacheManager {
 
   /// 2️⃣ 내 드라이브 + 공유된 폴더 전체 스캔 및 캐시 저장
   Future<void> refreshAllFolderIds(
-    DriveFolderRepository folderRepo, {
+    DriveFolderService folderRepo, {
     String folderName = "가계부",
   }) async {
     final allFolders = await folderRepo.getAllTargetFolders(folderName: folderName);
@@ -49,8 +49,8 @@ class LedgerCacheManager {
 
   /// 3️⃣ 모든 연도별 시트 목록 스캔 및 캐싱 (Folder & Sheet Repository 이용)
   Future<void> initializeAllSheets({
-    required DriveFolderRepository folderRepo,
-    required DriveSheetRepository sheetRepo,
+    required DriveFolderService folderRepo,
+    required SpreadSheetService sheetRepo,
     String accountEmail = 'me',
     String folderName = "가계부",
   }) async {

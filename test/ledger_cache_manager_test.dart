@@ -3,6 +3,7 @@ import 'package:googleapis/drive/v3.dart' as drive;
 import 'package:mocktail/mocktail.dart';
 
 // Your LedgerCacheManager & Repositories file import
+import 'package:household_ledger/services/google_drive/google_drive_cache.dart';
 import 'package:household_ledger/services/google_drive/google_drive_spreadsheet.dart';
 import 'package:household_ledger/services/google_drive/google_drive_folder.dart';
 
@@ -14,8 +15,8 @@ void main() {
   late LedgerCacheManager cacheManager;
   late MockDriveApi mockDriveApi;
   late MockFilesResource mockFilesResource;
-  late DriveFolderRepository folderRepo;
-  late DriveSheetRepository sheetRepo;
+  late DriveFolderService folderRepo;
+  late SpreadSheetService sheetRepo;
 
   setUp(() {
     cacheManager = LedgerCacheManager();
@@ -26,8 +27,8 @@ void main() {
     when(() => mockDriveApi.files).thenReturn(mockFilesResource);
 
     // mockDriveApi를 사용하는 Repository 인스턴스 초기화
-    folderRepo = DriveFolderRepository(mockDriveApi);
-    sheetRepo = DriveSheetRepository(mockDriveApi);
+    folderRepo = DriveFolderService(mockDriveApi);
+    sheetRepo = SpreadSheetService(mockDriveApi);
   });
 
   group('LedgerCacheManager 단위 테스트', () {
