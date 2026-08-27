@@ -1,7 +1,7 @@
 import 'package:googleapis/sheets/v4.dart' as sheets;
 import 'package:googleapis_auth/auth_io.dart';
 import 'package:household_ledger/services/ledger_ingestion/ledger_item.dart';
-import 'package:household_ledger/services/google_drive/google_drive_spreadsheet.dart';
+import 'package:household_ledger/services/ledger_ingestion/ledger_transaction_service.dart';
 import 'package:household_ledger/services/utils/app_logger.dart';
 
 /// 파싱 및 시트 데이터 추가 결과 상태
@@ -26,6 +26,10 @@ class SingleEntryService {
 
     try {
       final LedgerItem item = LedgerItem.fromMap(itemMap);
+      if (item.amount <= 0) {
+        AppLogger.i("⚠️ [단일 입력 실패] 금액은 0원보다 커야 합니다.");
+        return ParseResult.fail;
+      }
       final int year = item.date.year;
       final String sheetName = "${item.date.month}월";
 
@@ -47,7 +51,13 @@ class SingleEntryService {
         );
         existingRows = response.values ?? [];
       } catch (e) {
-        AppLogger.i("⚠️ [$year년 $sheetName] 시트 읽기 실패 (신규 시트 또는 데이터 없음): $e");
+        AppLogger.i("❌ [$year년 $sheetName] 기존 데이터 읽기 실패: $e");
+        return ParseResult.fail;
+      }
+
+      if (sheetService.isDuplicateTransaction(existingRows, item)) {
+        AppLogger.i("🔁 [단일 입력 중복 스킵]: ${item.date} | ${item.description} | ${item.amount}원");
+        return ParseResult.duplicate;
       }
 
       final bool isAppended = await sheetService.appendTransactionData(
@@ -61,8 +71,8 @@ class SingleEntryService {
       if (isAppended) {
         return ParseResult.success;
       } else {
-        AppLogger.i("🔁 [단일 입력 중복 스킵]: ${item.date} | ${item.description} | ${item.amount}원");
-        return ParseResult.duplicate;
+        AppLogger.i("❌ [단일 입력 실패]: ${item.date} | ${item.description} | ${item.amount}원");
+        return ParseResult.fail;
       }
     } catch (e) {
       AppLogger.i("❌ [appendParseSingleLine] 처리 실패: $e");
@@ -96,6 +106,11 @@ class MultiEntryService {
       }
       try {
         final LedgerItem item = LedgerItem.fromMap(itemMap);
+        if (item.amount <= 0) {
+          AppLogger.i("⚠️ [항목 변환 실패] 금액은 0원보다 커야 합니다.");
+          failCount++;
+          continue;
+        }
         final int year = item.date.year;
         final String sheetName = "${item.date.month}월";
 

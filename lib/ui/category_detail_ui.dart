@@ -1,8 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:googleapis_auth/googleapis_auth.dart';
 import 'package:intl/intl.dart';
-import 'package:household_ledger/services/google_drive/google_drive_spreadsheet.dart';
 import 'package:household_ledger/services/ledger_ingestion/ledger_item.dart';
+import 'package:household_ledger/services/ledger_ingestion/ledger_transaction_service.dart';
 import 'package:household_ledger/ui/an_item_detail_ui.dart';
 
 class CategoryDetailUI extends StatefulWidget {
@@ -117,19 +117,25 @@ class _CategoryDetailUIState extends State<CategoryDetailUI> {
                                   isExpense: widget.isExpense,
                                   onUpdate: (oldItem, updatedData) async {
                                     final service = LedgerDataService();
-                                    
-                                    // 💡 type 추가: updatedData에서 전달받은 type 반영
-                                    final newItem = (oldItem as LedgerItem).copyWith(
-                                      type: updatedData['type'], // 👈 이 부분이 추가되었습니다!
-                                      date: updatedData['date'],
-                                      category: updatedData['category'],
-                                      description: updatedData['description'],
-                                      amount: updatedData['amount'],
-                                      payMethod: updatedData['payMethod'],
-                                      memo: updatedData['memo'],
+
+                                    if (oldItem is! LedgerItem ||
+                                        updatedData['date'] is! DateTime ||
+                                        updatedData['type'] is! TransactionType) {
+                                      return false;
+                                    }
+
+                                    final newItem = oldItem.copyWith(
+                                      type:
+                                          updatedData['type'] as TransactionType,
+                                      date: updatedData['date'] as DateTime,
+                                      category: updatedData['category'] as String?,
+                                      description: updatedData['description'] as String?,
+                                      amount: updatedData['amount'] as int?,
+                                      payMethod: updatedData['payMethod'] as String?,
+                                      memo: updatedData['memo'] as String?,
                                     );
 
-                                    await service.updateTransaction(
+                                    return service.updateTransaction(
                                       client: widget.client,
                                       oldItem: oldItem,
                                       newItem: newItem,

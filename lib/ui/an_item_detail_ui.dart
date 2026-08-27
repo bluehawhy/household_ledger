@@ -1,12 +1,16 @@
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
+import 'package:household_ledger/services/ledger_ingestion/ledger_item.dart';
 
 class AnItemDetailUI extends StatefulWidget {
   final dynamic item;
   final bool isExpense;
 
   // 데이터 변경 발생 시 상위로 알리기 위한 콜백
-  final Function(dynamic item, Map<String, dynamic> updatedData)? onUpdate;
+  final Future<bool> Function(
+    dynamic item,
+    Map<String, dynamic> updatedData,
+  )? onUpdate;
   final Function(dynamic item)? onDelete;
 
   const AnItemDetailUI({
@@ -394,7 +398,9 @@ class _AnItemDetailUIState extends State<AnItemDetailUI> {
                 'date': _selectedDate,
                 'isExpense': _isExpense,
                 // 모델 객체 업데이트를 위해 'type'과 'typeString' 모두 전달
-                'type': _isExpense ? 'expense' : 'income',
+                'type': _isExpense
+                    ? TransactionType.expense
+                    : TransactionType.income,
                 'typeString': _isExpense ? '지출' : '수입',
                 'category': _selectedCategory ?? '미분류',
                 'description': _descriptionController.text,
@@ -403,7 +409,19 @@ class _AnItemDetailUIState extends State<AnItemDetailUI> {
                 'memo': _memoController.text,
               };
 
-              await widget.onUpdate?.call(widget.item, updatedData);
+              final bool didUpdate =
+                  await widget.onUpdate?.call(widget.item, updatedData) ?? false;
+
+              if (!didUpdate) {
+                if (mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(
+                      content: Text('수정 내용을 저장하지 못했습니다. 다시 시도해 주세요.'),
+                    ),
+                  );
+                }
+                return;
+              }
 
               setState(() => _isEditing = false);
               if (mounted) {

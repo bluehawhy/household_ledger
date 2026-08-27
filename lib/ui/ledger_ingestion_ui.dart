@@ -4,7 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:google_sign_in/google_sign_in.dart';
 import 'package:intl/intl.dart';
 import 'package:household_ledger/services/auth/google_auth.dart';
-import 'package:household_ledger/services/google_drive/google_drive_spreadsheet.dart'; // 수정한 파일 경로
+import 'package:household_ledger/services/ledger_ingestion/ledger_ingestion_service.dart';
 
 class LedgerIngestionUI extends StatefulWidget {
   final GoogleSignInAccount googleUser;

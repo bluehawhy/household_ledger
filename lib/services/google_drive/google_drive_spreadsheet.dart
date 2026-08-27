@@ -4,10 +4,10 @@ import 'package:household_ledger/services/utils/app_logger.dart';
 // ============================================================================
 /// 📊 구글 드라이브 & 스프레드시트 관리 전담 서비스
 // ============================================================================
-class DriveSheerService {
+class DriveSheetService {
   final drive.DriveApi _driveApi;
 
-  DriveSheerService(this._driveApi);
+  DriveSheetService(this._driveApi);
 
   /// 1️⃣ 특정 폴더 내의 모든 시트 목록 조회 ({파일명 : 시트 ID})
   Future<Map<String, String>> getSpreadsheetsInFolder({

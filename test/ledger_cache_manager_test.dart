@@ -16,7 +16,7 @@ void main() {
   late MockDriveApi mockDriveApi;
   late MockFilesResource mockFilesResource;
   late DriveFolderService folderRepo;
-  late SpreadSheetService sheetRepo;
+  late DriveSheetService sheetRepo;
 
   setUp(() {
     cacheManager = LedgerCacheManager();

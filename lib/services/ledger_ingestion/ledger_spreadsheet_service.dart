@@ -11,8 +11,9 @@ import 'package:household_ledger/services/utils/app_logger.dart';
 // ============================================================================
 // 📊 가계부 구글 드라이브 및 스프레드시트 통합 관리 서비스 클래스
 // ============================================================================
-class SpreadsheetService {
-final CategoryMapper categoryMapper = CategoryMapper();
+/// 연도별 가계부 파일과 월별 시트를 생성·조회·초기화한다.
+class LedgerSpreadsheetService {
+  final CategoryMapper categoryMapper = CategoryMapper();
   final LedgerCacheManager cacheManager = LedgerCacheManager();
   final Map<int, Future<String?>> _spreadsheetInitFutures = {};
 
@@ -26,12 +27,16 @@ final CategoryMapper categoryMapper = CategoryMapper();
 
     // 1. 리팩터링된 Repository 객체 생성
     final folderRepo = DriveFolderService(driveApi);
-    final sheetRepo = SpreadSheetService(driveApi);
+    final sheetRepo = DriveSheetService(driveApi);
+    String? currentUserEmail;
+    currentUserEmail = await folderRepo.getUserEmail();
 
     // 2. Repository 전달
     await cacheManager.initializeAllSheets(
       folderRepo: folderRepo,
       sheetRepo: sheetRepo,
+      accountEmail: currentUserEmail,
+      folderName: "가계부",
     );
   }
 

@@ -67,7 +67,7 @@ class LedgerCacheManager {
   /// 3️⃣ 모든 연도별 시트 목록 스캔 및 캐싱 (Folder & Sheet Repository 이용)
   Future<void> initializeAllSheets({
     required DriveFolderService folderRepo,
-    required DriveSheerService sheetRepo,
+    required DriveSheetService sheetRepo,
     required String accountEmail, // accountEmail을 필수 인자로 수정하여 'me' 기본값 제거
     String folderName = "가계부",
   }) async {
