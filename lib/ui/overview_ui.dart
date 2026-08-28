@@ -7,6 +7,7 @@ import 'package:intl/intl.dart';
 
 // 서비스 및 UI 클래스 임포트
 import 'package:household_ledger/services/auth/google_auth.dart';
+import 'package:household_ledger/services/google_drive/google_drive_cache.dart'; // 💡 캐시 매니저 임포트 추가
 import 'package:household_ledger/services/ledger_ingestion/ledger_item.dart';
 import 'package:household_ledger/services/ledger_ingestion/ledger_transaction_service.dart';
 
@@ -30,9 +31,13 @@ class _OverviewPageState extends State<OverviewPage> {
   final PageController _pageController = PageController();
   int _currentPage = 0;
 
-  // 서비스 객체
+  // 서비스 및 캐시 객체
   final GoogleAuthManager _authManager = GoogleAuthManager();
   final HouseholdSheetService _sheetService = HouseholdSheetService();
+  final LedgerCacheManager _cacheManager = LedgerCacheManager(); // 💡 캐시 매니저 선언
+
+  // 현재 기준 계정 이메일 (기본값: 로그인된 구글 계정 이메일)
+  late String _currentSelectedEmail;
 
   // 통화 포맷터
   final NumberFormat _currencyFormatter = NumberFormat('#,###');
@@ -41,7 +46,7 @@ class _OverviewPageState extends State<OverviewPage> {
   bool _isLoading = true;
   String? _errorMessage;
 
-  // 💡 원본 아이템 리스트 저장용 변수 추가
+  // 원본 아이템 리스트 저장용 변수
   List<LedgerItem> _rawExpenses = [];
   List<LedgerItem> _rawIncomes = [];
 
@@ -55,6 +60,7 @@ class _OverviewPageState extends State<OverviewPage> {
   @override
   void initState() {
     super.initState();
+    _currentSelectedEmail = widget.googleUser.email; // 💡 기본 계정으로 초기화
     _loadMonthlyData();
   }
 
@@ -97,7 +103,7 @@ class _OverviewPageState extends State<OverviewPage> {
         }
       }
 
-      // 3. 지출 데이터 집계 (기존 변수명 및 로직 그대로 유지)
+      // 3. 지출 데이터 집계
       int totalExp = 0;
       final Map<String, int> expCatMap = {};
       final Map<String, int> expMethodMap = {};
@@ -115,7 +121,7 @@ class _OverviewPageState extends State<OverviewPage> {
         }
       }
 
-      // 4. 수입 데이터 집계 (기존 변수명 및 로직 그대로 유지)
+      // 4. 수입 데이터 집계
       int totalInc = 0;
       final Map<String, int> incCatMap = {};
 
@@ -127,11 +133,11 @@ class _OverviewPageState extends State<OverviewPage> {
         incCatMap[category] = (incCatMap[category] ?? 0) + amount;
       }
 
-      // 5. 기존 상태 변수(setState)에 그대로 반영
+      // 5. 기존 상태 변수(setState)에 반영
       if (mounted) {
         setState(() {
-          _rawExpenses = expenses; // 💡 분리된 지출 원본 리스트
-          _rawIncomes = incomes;   // 💡 분리된 수입 원본 리스트
+          _rawExpenses = expenses;
+          _rawIncomes = incomes;
 
           _totalExpense = totalExp;
           _expenseCategories = expCatMap;
@@ -154,10 +160,7 @@ class _OverviewPageState extends State<OverviewPage> {
     }
   }
 
-
-
-
-  // 💡 선택한 카테고리 상세 페이지로 이동
+  // 선택한 카테고리 상세 페이지로 이동
   Future<void> _navigateToCategoryDetail({
     required String categoryName,
     required bool isExpense,
@@ -167,12 +170,10 @@ class _OverviewPageState extends State<OverviewPage> {
 
     if (isExpense) {
       if (isPayMethod) {
-        // 결제 수단 기준 필터링
         filteredItems = _rawExpenses.where((item) {
           return (item.payMethod ?? '') == categoryName;
         }).toList();
       } else {
-        // 지출 카테고리 기준 필터링
         filteredItems = _rawExpenses.where((item) {
           final cat = (item.category != null && item.category!.isNotEmpty)
               ? item.category!
@@ -181,7 +182,6 @@ class _OverviewPageState extends State<OverviewPage> {
         }).toList();
       }
     } else {
-      // 수입 카테고리 기준 필터링
       filteredItems = _rawIncomes.where((item) {
         final cat = (item.category != null && item.category!.isNotEmpty)
             ? item.category!
@@ -190,17 +190,15 @@ class _OverviewPageState extends State<OverviewPage> {
       }).toList();
     }
 
-    // 💡 상세 페이지로 이동 전 AuthClient 확보
     final AuthClient client = await _authManager.getClient();
 
-    // 💡 상세 페이지에서 데이터 변경이 있었는지 여부를 반환받음
     final bool? dataChanged = await Navigator.of(context).push<bool>(
       MaterialPageRoute(
         builder: (context) => CategoryDetailUI(
           categoryName: categoryName,
           items: filteredItems,
           isExpense: isExpense,
-          client: client, // 💡 AuthClient 전달
+          client: client,
         ),
       ),
     );
@@ -223,12 +221,19 @@ class _OverviewPageState extends State<OverviewPage> {
       MaterialPageRoute(
         builder: (context) => SettingUI(
           googleUser: widget.googleUser,
+          cacheManager: _cacheManager, // 💡 선언된 cacheManager 전달
+          currentSelectedEmail: _currentSelectedEmail, // 💡 선언된 currentSelectedEmail 전달
+          onAccountChanged: (newEmail) {
+            setState(() {
+              _currentSelectedEmail = newEmail;
+            });
+            // 기준 계정이 바뀌었으므로 데이터 재로드
+            _loadMonthlyData();
+          },
         ),
       ),
     );
   }
-
-
 
   @override
   Widget build(BuildContext context) {
@@ -312,7 +317,6 @@ class _OverviewPageState extends State<OverviewPage> {
                             });
                           },
                           children: [
-                            // 1페이지: 지출 화면
                             _buildOverviewSection(
                               title: '이번달 지출',
                               totalAmount: _totalExpense,
@@ -321,7 +325,6 @@ class _OverviewPageState extends State<OverviewPage> {
                               colorScheme: Colors.redAccent,
                               isExpense: true,
                             ),
-                            // 2페이지: 수입 화면
                             _buildOverviewSection(
                               title: '이번달 수입',
                               totalAmount: _totalIncome,
@@ -377,7 +380,7 @@ class _OverviewPageState extends State<OverviewPage> {
     required Map<String, int> categoryData,
     Map<String, int>? methodData,
     required Color colorScheme,
-    required bool isExpense, // 💡 수입/지출 구분 파라미터 추가
+    required bool isExpense,
   }) {
     final bool hasCategoryData = categoryData.isNotEmpty;
 
@@ -387,7 +390,6 @@ class _OverviewPageState extends State<OverviewPage> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // 1. 파이 차트 Card
           Card(
             elevation: 2,
             shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
@@ -416,8 +418,6 @@ class _OverviewPageState extends State<OverviewPage> {
             ),
           ),
           const SizedBox(height: 16),
-
-          // 2. 총 금액 표시
           Card(
             color: colorScheme.withOpacity(0.1),
             elevation: 0,
@@ -434,8 +434,6 @@ class _OverviewPageState extends State<OverviewPage> {
             ),
           ),
           const SizedBox(height: 16),
-
-          // 3. 분류별 내역 (클릭 가능하도록 탭 이벤트 추가)
           const Text(
             '분류별 상세 (클릭시 세부 내역 이동)',
             style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
@@ -457,8 +455,6 @@ class _OverviewPageState extends State<OverviewPage> {
               padding: EdgeInsets.symmetric(vertical: 8.0),
               child: Text('등록된 분류별 내역이 없습니다.', style: TextStyle(color: Colors.grey)),
             ),
-
-          // 4. 지출/수입 수단별 표시
           if (methodData != null) ...[
             const SizedBox(height: 20),
             const Text(
@@ -474,7 +470,7 @@ class _OverviewPageState extends State<OverviewPage> {
                   onTap: () => _navigateToCategoryDetail(
                     categoryName: entry.key,
                     isExpense: true,
-                    isPayMethod: true, // 💡 결제 수단 전용 필터 플래그
+                    isPayMethod: true,
                   ),
                 );
               })
@@ -489,7 +485,6 @@ class _OverviewPageState extends State<OverviewPage> {
     );
   }
 
-  // 💡 ListTile에 InkWell 및 화살표 아이콘(chevron_right) 추가
   Widget _buildDetailTile({
     required String name,
     required int amount,
@@ -504,7 +499,7 @@ class _OverviewPageState extends State<OverviewPage> {
       ),
       child: ListTile(
         dense: true,
-        onTap: onTap, // 💡 클릭 이벤트 연동
+        onTap: onTap,
         title: Text(name, style: const TextStyle(fontSize: 15)),
         trailing: Row(
           mainAxisSize: MainAxisSize.min,

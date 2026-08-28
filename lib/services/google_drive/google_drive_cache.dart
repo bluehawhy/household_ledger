@@ -1,3 +1,5 @@
+//google_drive_cache.dart
+
 import 'package:household_ledger/services/google_drive/google_drive_folder.dart';
 import 'package:household_ledger/services/google_drive/google_drive_spreadsheet.dart';
 import 'package:household_ledger/services/utils/app_logger.dart';
@@ -99,6 +101,14 @@ class LedgerCacheManager {
   /// 신규 생성된 연도 시트 ID 수동 등록
   void registerSpreadsheetId(int year, String spreadsheetId) {
     _yearToSpreadsheetIdMap[year] = spreadsheetId;
+  }
+
+  /// 캐시된 전체 계정 이메일 목록 반환 (내 계정 + 공유받은 계정들)
+  List<String> get cachedAccountEmails => _folderIdMap.keys.toList();
+
+  /// 특정 계정(내 계정 또는 공유 계정)의 가계부 폴더 ID가 캐시에 있는지 확인
+  bool hasFolderForAccount(String accountEmail, {String folderName = "가계부"}) {
+    return _folderIdMap[accountEmail]?.containsKey(folderName) ?? false;
   }
 
   /// 특정 계정의 모든 폴더 맵 조회
