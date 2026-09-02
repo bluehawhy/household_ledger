@@ -17,27 +17,78 @@ class LedgerSpreadsheetService {
   final LedgerCacheManager cacheManager = LedgerCacheManager();
   final Map<int, Future<String?>> _spreadsheetInitFutures = {};
 
-  /// 서비스 초기화 시 JSON 설정 파일 및 구글 드라이브 시트 목록 사전 스캔
+  /// 초기화 작업의 중복 실행을 막기 위한 Future.
+  Future<void>? _initializationFuture;
+
+  /// 서비스 초기화가 완료되었는지 여부.
+  bool get isInitialized => _initializationFuture == null
+      ? false
+      : cacheManager.isInitialized;
+
+  /// 서비스 초기화 시 JSON 설정 파일 및 구글 드라이브 시트 목록을 사전 스캔한다.
   Future<void> init(
     AuthClient client, [
     String filePath = 'assets/ledger_ingestion_info.json',
   ]) async {
+    // 동일 서비스 인스턴스에서 동시에 여러 번 초기화하지 않는다.
+    if (_initializationFuture != null) {
+      await _initializationFuture;
+      return;
+    }
+
+    final future = _initialize(client, filePath);
+    _initializationFuture = future;
+
+    try {
+      await future;
+    } catch (_) {
+      // 초기화 실패 시 다음 호출에서 재시도할 수 있도록 상태를 되돌린다.
+      _initializationFuture = null;
+      rethrow;
+    }
+  }
+
+  Future<void> _initialize(
+    AuthClient client,
+    String filePath,
+  ) async {
+    AppLogger.i("📁 가계부 Drive/Spreadsheet 전체 초기화 시작");
+
     await categoryMapper.loadCategoryJson(filePath);
     final driveApi = drive.DriveApi(client);
 
-    // 1. 리팩터링된 Repository 객체 생성
     final folderRepo = DriveFolderService(driveApi);
     final sheetRepo = DriveSheetService(driveApi);
-    String? currentUserEmail;
-    currentUserEmail = await folderRepo.getUserEmail();
+    final currentUserEmail = await folderRepo.getUserEmail();
 
-    // 2. Repository 전달
+    AppLogger.i("📁 현재 Google 계정: $currentUserEmail");
+
+    // 내 계정 + 공유받은 모든 가계부 폴더와 그 안의 스프레드시트를
+    // 한 번에 스캔해서 캐시에 저장한다.
     await cacheManager.initializeAllSheets(
       folderRepo: folderRepo,
       sheetRepo: sheetRepo,
       accountEmail: currentUserEmail,
       folderName: "가계부",
     );
+
+    AppLogger.i(
+      "📁 전체 가계부 폴더: ${cacheManager.cachedAccountEmails.map((email) => MapEntry(email, cacheManager.getFoldersByAccount(email))).toList()}",
+    );
+    AppLogger.i(
+      "📊 전체 가계부 스프레드시트: ${cacheManager.allSpreadsheetIds}",
+    );
+    AppLogger.i("📁 가계부 Drive/Spreadsheet 전체 초기화 완료");
+  }
+
+  /// 시트 조회/생성 전에 초기화가 반드시 완료되도록 보장한다.
+  Future<void> _ensureInitialized(AuthClient client) async {
+    if (isInitialized) {
+      return;
+    }
+
+    AppLogger.i("🔄 가계부 캐시가 초기화되지 않아 전체 목록 스캔을 시작합니다.");
+    await init(client);
   }
 
   /// 특정 연도 가계부 설정 (타 계정용 등 생성 방지 옵션 createIfNotFound 추가)
@@ -46,6 +97,10 @@ class LedgerSpreadsheetService {
     int year, {
     bool createIfNotFound = true,
   }) async {
+    // OverviewPage/기존 호출부에서 init()을 생략하더라도
+    // 여기서 전체 폴더/스프레드시트 캐시를 먼저 준비한다.
+    await _ensureInitialized(client);
+
     final cachedId = cacheManager.getSpreadsheetId(year);
     if (cachedId != null) {
       return cachedId;
