@@ -18,6 +18,7 @@ class _MainUIState extends State<MainUI> {
   bool _isLoading = true;
   bool _authorizationRequired = false;
   bool _processingAccount = false;
+  bool _silentRestoreStarted = false;
   String? _errorMessage;
 
   final GoogleAuthManager _authManager = GoogleAuthManager();
@@ -28,10 +29,7 @@ class _MainUIState extends State<MainUI> {
     super.initState();
     AppLogger.i('[AUTH] MainUI initState()');
 
-    // Web의 Google Identity Services 버튼은 SDK가 인증을 완료한 뒤
-    // onCurrentUserChanged 이벤트를 발생시키므로 이 이벤트를 구독한다.
-    // 로그인 이벤트는 초기 로딩 중에도 처리해야 새로고침 후 복원된 계정을
-    // 바로 OverviewPage로 보낼 수 있다.
+    // Google 로그인 결과는 onCurrentUserChanged로 통합 처리한다.
     _accountSubscription = _authManager.onCurrentUserChanged.listen(
       _handleAccountChanged,
       onError: (error, stackTrace) {
@@ -48,17 +46,17 @@ class _MainUIState extends State<MainUI> {
     AppLogger.i('[AUTH] Google 계정 변경 이벤트 수신');
     _processingAccount = true;
     try {
-      await _checkApiAuthorization(account);
+      await _handleAuthenticatedAccount(account);
     } finally {
       _processingAccount = false;
     }
   }
 
-  /// 앱 시작 시 즉시 currentUser만 확인한다.
+  /// 앱 시작 시 화면을 먼저 표시하고, 기존 Google 세션 복원은 백그라운드에서 수행한다.
   ///
-  /// Web에서는 signInSilently()가 FedCM을 최대 수십 초 기다릴 수 있으므로
-  /// 초기 진입에서 호출하지 않는다. 로그인된 세션이 비동기로 복원되면
-  /// onCurrentUserChanged 이벤트가 이를 감지해 OverviewPage로 이동한다.
+  /// Web의 signInSilently()는 FedCM/One Tap 환경에 따라 오래 걸릴 수 있으므로
+  /// 첫 화면을 막지 않는다. 복원이 성공하면 결과와 onCurrentUserChanged 이벤트를
+  /// 통해 기존 계정으로 바로 OverviewPage까지 진행한다.
   Future<void> _checkSignInState() async {
     AppLogger.i('[AUTH] _checkSignInState() 시작');
 
@@ -69,17 +67,14 @@ class _MainUIState extends State<MainUI> {
         '[AUTH] currentUser 결과: ${account == null ? 'null (계정 없음)' : '계정 있음'}',
       );
 
-      if (account == null) {
-        AppLogger.i('[AUTH] currentUser 없음 → silent sign-in 대기 없이 로그인 화면 표시');
-        await _saveLoggedInState(false);
-        return;
+      if (account != null) {
+        await _handleAuthenticatedAccount(account);
+      } else {
+        // SharedPreferences의 로그인 여부는 Google 인증 상태가 아니므로
+        // 여기서 false로 덮어쓰지 않는다. 기존 세션 복원을 백그라운드에서 시도한다.
+        AppLogger.i('[AUTH] currentUser 없음 → silent sign-in 백그라운드 복원 시작');
+        _startSilentRestore();
       }
-
-      AppLogger.i('[AUTH] 로그인 계정 확인 성공');
-      AppLogger.i('[AUTH] 계정 이메일: ${account.email}');
-      await _saveLoggedInState(true);
-
-      await _checkApiAuthorization(account);
     } catch (e, stackTrace) {
       AppLogger.i('[AUTH] 로그인/권한 확인 중 오류 발생: $e');
       AppLogger.i('[AUTH] StackTrace: $stackTrace');
@@ -95,6 +90,49 @@ class _MainUIState extends State<MainUI> {
         setState(() => _isLoading = false);
       }
     }
+  }
+
+  void _startSilentRestore() {
+    if (_silentRestoreStarted) return;
+    _silentRestoreStarted = true;
+
+    // 의도적으로 await하지 않는다.
+    unawaited(_restoreExistingGoogleSession());
+  }
+
+  Future<void> _restoreExistingGoogleSession() async {
+    try {
+      AppLogger.i('[AUTH] signInSilently() 백그라운드 호출');
+      final account = await _authManager.signInSilently();
+
+      if (account == null || !mounted || _processingAccount) {
+        AppLogger.i('[AUTH] silent sign-in 결과: 기존 세션 없음');
+        return;
+      }
+
+      AppLogger.i('[AUTH] silent sign-in 성공 → 기존 계정 처리');
+      _processingAccount = true;
+      try {
+        await _handleAuthenticatedAccount(account);
+      } finally {
+        _processingAccount = false;
+      }
+    } catch (e, stackTrace) {
+      // Silent restore 실패는 로그인 실패가 아니다.
+      // 사용자가 공식 Google 버튼으로 로그인할 수 있도록 화면은 그대로 둔다.
+      AppLogger.i('[AUTH] silent sign-in 백그라운드 복원 실패: $e');
+      AppLogger.i('[AUTH] silent sign-in StackTrace: $stackTrace');
+    }
+  }
+
+  Future<void> _handleAuthenticatedAccount(dynamic account) async {
+    if (!mounted) return;
+
+    AppLogger.i('[AUTH] 로그인 계정 확인 성공');
+    AppLogger.i('[AUTH] 계정 이메일: ${account.email}');
+    await _saveLoggedInState(true);
+
+    await _checkApiAuthorization(account);
   }
 
   Future<void> _checkApiAuthorization(dynamic account) async {
@@ -156,7 +194,7 @@ class _MainUIState extends State<MainUI> {
       }
 
       AppLogger.i('[AUTH] Google 로그인 성공 → API 권한 확인');
-      await _checkApiAuthorization(account);
+      await _handleAuthenticatedAccount(account);
     } catch (e, stackTrace) {
       AppLogger.i('[AUTH] Google 로그인 에러: $e');
       AppLogger.i('[AUTH] Google 로그인 StackTrace: $stackTrace');
