@@ -407,7 +407,7 @@ class _OverviewPageState extends State<OverviewPage> {
       child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
         decoration: BoxDecoration(
-          color: isSelected ? Colors.teal : Colors.grey[200],
+          color: isSelected ? Theme.of(context).primaryColor : Colors.grey[200],
           borderRadius: BorderRadius.circular(20),
         ),
         child: Text(
@@ -429,83 +429,106 @@ class _OverviewPageState extends State<OverviewPage> {
     required Color colorScheme,
     required bool isExpense,
   }) {
-    return ListView(
-      padding: const EdgeInsets.all(16),
-      children: [
-        Text(
-          title,
-          style: const TextStyle(fontSize: 22, fontWeight: FontWeight.bold),
-        ),
-        const SizedBox(height: 12),
-        Card(
-          child: Padding(
-            padding: const EdgeInsets.all(16),
-            child: Column(
-              children: [
-                Text(
-                  '${_currencyFormatter.format(totalAmount)} 원',
-                  style: TextStyle(
-                    fontSize: 28,
-                    fontWeight: FontWeight.bold,
-                    color: colorScheme,
+    final bool hasCategoryData = categoryData.isNotEmpty;
+
+    return SingleChildScrollView(
+      physics: const AlwaysScrollableScrollPhysics(),
+      padding: const EdgeInsets.all(16.0),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Card(
+            elevation: 2,
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+            child: Padding(
+              padding: const EdgeInsets.all(16.0),
+              child: Column(
+                children: [
+                  Text(
+                    '$title 차트',
+                    style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
                   ),
-                ),
-                const SizedBox(
-                  height: 220,
-                  child: SizedBox.expand(),
-                ),
-              ],
+                  const SizedBox(height: 16),
+                  SizedBox(
+                    height: 200,
+                    child: hasCategoryData
+                        ? _buildPieChart(categoryData, colorScheme)
+                        : const Center(
+                            child: Text(
+                              '내역이 없습니다.',
+                              style: TextStyle(color: Colors.grey),
+                            ),
+                          ),
+                  ),
+                ],
+              ),
             ),
           ),
-        ),
-        const SizedBox(height: 20),
-        const Text(
-          '분류별',
-          style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
-        ),
-        const SizedBox(height: 8),
-        if (categoryData.isNotEmpty)
-          ...categoryData.entries.map((entry) {
-            return _buildDetailTile(
-              name: entry.key,
-              amount: entry.value,
-              onTap: () => _navigateToCategoryDetail(
-                categoryName: entry.key,
-                isExpense: isExpense,
+          const SizedBox(height: 16),
+          Card(
+            color: colorScheme.withOpacity(0.1),
+            elevation: 0,
+            child: ListTile(
+              title: Text(title, style: const TextStyle(fontWeight: FontWeight.bold)),
+              trailing: Text(
+                '${_currencyFormatter.format(totalAmount)} 원',
+                style: TextStyle(
+                  fontSize: 18,
+                  fontWeight: FontWeight.bold,
+                  color: colorScheme,
+                ),
               ),
-            );
-          })
-        else
-          const Padding(
-            padding: EdgeInsets.symmetric(vertical: 8.0),
-            child: Text('등록된 분류별 내역이 없습니다.', style: TextStyle(color: Colors.grey)),
+            ),
           ),
-        if (methodData != null) ...[
-          const SizedBox(height: 20),
+          const SizedBox(height: 16),
           const Text(
-            '결제 수단별',
+            '분류별 상세 (클릭시 세부 내역 이동)',
             style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
           ),
           const SizedBox(height: 8),
-          if (methodData.isNotEmpty)
-            ...methodData.entries.map((entry) {
+          if (hasCategoryData)
+            ...categoryData.entries.map((entry) {
               return _buildDetailTile(
                 name: entry.key,
                 amount: entry.value,
                 onTap: () => _navigateToCategoryDetail(
                   categoryName: entry.key,
-                  isExpense: true,
-                  isPayMethod: true,
+                  isExpense: isExpense,
                 ),
               );
             })
           else
             const Padding(
               padding: EdgeInsets.symmetric(vertical: 8.0),
-              child: Text('등록된 결제 수단 내역이 없습니다.', style: TextStyle(color: Colors.grey)),
+              child: Text('등록된 분류별 내역이 없습니다.', style: TextStyle(color: Colors.grey)),
             ),
+          if (methodData != null) ...[
+            const SizedBox(height: 20),
+            const Text(
+              '결제 수단별',
+              style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+            ),
+            const SizedBox(height: 8),
+            if (methodData.isNotEmpty)
+              ...methodData.entries.map((entry) {
+                return _buildDetailTile(
+                  name: entry.key,
+                  amount: entry.value,
+                  onTap: () => _navigateToCategoryDetail(
+                    categoryName: entry.key,
+                    isExpense: true,
+                    isPayMethod: true,
+                  ),
+                );
+              })
+            else
+              const Padding(
+                padding: EdgeInsets.symmetric(vertical: 8.0),
+                child: Text('등록된 결제 수단 내역이 없습니다.', style: TextStyle(color: Colors.grey)),
+              ),
+          ],
         ],
-      ],
+      ),
     );
   }
 
