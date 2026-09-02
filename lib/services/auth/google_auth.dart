@@ -22,6 +22,12 @@ class GoogleAuthManager {
 
   dynamic get currentUser => _authService.currentUser;
 
+  /// 사용자가 로그인 버튼을 눌렀을 때 호출하는 실제 Google 로그인.
+  /// 웹에서는 여기서만 interactive sign-in popup을 시작한다.
+  Future<dynamic> signIn() async {
+    return await (_authService as dynamic).signIn();
+  }
+
   Future<AuthClient> getClient() async {
     return await _authService.getAuthenticatedClient();
   }
