@@ -12,39 +12,37 @@ class GoogleAuthWebService implements GoogleAuthService {
   @override
   final List<String> scopes;
 
-  static final GoogleSignIn _googleSignIn = GoogleSignIn.instance;
-  static bool _initialized = false;
+  static GoogleSignIn? _sharedGoogleSignIn;
 
-  GoogleAuthWebService(this.scopes);
-
-  Future<void> _ensureInitialized() async {
-    if (_initialized) return;
-    await _googleSignIn.initialize();
-    _initialized = true;
+  GoogleAuthWebService(this.scopes) {
+    _sharedGoogleSignIn ??= GoogleSignIn(scopes: scopes);
   }
+
+  GoogleSignIn get _googleSignIn => _sharedGoogleSignIn!;
 
   @override
   GoogleSignInAccount? get currentUser => _googleSignIn.currentUser;
 
   Future<GoogleSignInAccount?> signInSilently() async {
-    await _ensureInitialized();
     try {
-      await _googleSignIn.attemptLightweightAuthentication();
-      return _googleSignIn.currentUser;
+      return await _googleSignIn.signInSilently();
     } catch (e) {
       print('❌ [Web Auth Error] 자동 로그인 복원 실패: $e');
       return null;
     }
   }
 
-  Future<bool> requestAuthorization() async {
-    await _ensureInitialized();
+  Future<bool> canAccessScopes() async {
     final account = _googleSignIn.currentUser;
     if (account == null) return false;
+    return await _googleSignIn.canAccessScopes(scopes);
+  }
 
+  Future<bool> requestAuthorization() async {
+    final account = _googleSignIn.currentUser;
+    if (account == null) return false;
     try {
-      final authorization = await account.authorizationClient.authorizeScopes(scopes);
-      return authorization.accessToken.isNotEmpty;
+      return await _googleSignIn.requestScopes(scopes);
     } catch (e) {
       print('❌ [Web Auth Error] Google API 권한 요청 실패: $e');
       return false;
@@ -53,8 +51,6 @@ class GoogleAuthWebService implements GoogleAuthService {
 
   @override
   Future<AuthClient> getAuthenticatedClient() async {
-    await _ensureInitialized();
-
     GoogleSignInAccount? account = _googleSignIn.currentUser;
     account ??= await signInSilently();
 
@@ -62,15 +58,16 @@ class GoogleAuthWebService implements GoogleAuthService {
       throw Exception('Google 로그인 세션이 없습니다.');
     }
 
-    // 새로고침 후에도 기존에 승인된 OAuth grant가 있으면
-    // authorizationForScopes()가 사용자 interaction 없이 access token을 복원한다.
-    final authorization =
-        await account.authorizationClient.authorizationForScopes(scopes);
-
-    if (authorization == null || authorization.accessToken.isEmpty) {
+    final bool authorized = await _googleSignIn.canAccessScopes(scopes);
+    if (!authorized) {
       throw Exception('Google API 권한 승인이 필요합니다.');
     }
 
-    return authorization.authClient(scopes: scopes);
+    final client = await _googleSignIn.authenticatedClient();
+    if (client != null) {
+      return client;
+    }
+
+    throw Exception('Google API 인증 클라이언트를 생성하지 못했습니다.');
   }
 }
