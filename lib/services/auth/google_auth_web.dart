@@ -11,7 +11,7 @@ GoogleAuthService getGoogleAuthService(List<String> scopes) {
 class GoogleAuthWebService implements GoogleAuthService {
   @override
   final List<String> scopes;
-  
+
   static GoogleSignIn? _sharedGoogleSignIn;
 
   GoogleAuthWebService(this.scopes) {
@@ -20,9 +20,24 @@ class GoogleAuthWebService implements GoogleAuthService {
 
   GoogleSignIn get _googleSignIn => _sharedGoogleSignIn!;
 
-  // 💡 추가: _googleSignIn의 currentUser 반환
+  // GoogleSignIn의 현재 계정 반환
   @override
   GoogleSignInAccount? get currentUser => _googleSignIn.currentUser;
+
+  /// 웹 새로고침 후 Google 로그인 상태를 자동 복원한다.
+  ///
+  /// google_sign_in 웹 구현은 Google Identity Services(GIS)를 사용하며,
+  /// signInSilently()는 사용자에게 별도의 로그인 팝업을 띄우지 않고
+  /// 기존 Google 인증 상태를 확인/복원하는 용도로 사용할 수 있다.
+  Future<GoogleSignInAccount?> signInSilently() async {
+    try {
+      final account = await _googleSignIn.signInSilently();
+      return account;
+    } catch (e) {
+      print("❌ [Web Auth Error] 자동 로그인 복원 실패: $e");
+      return null;
+    }
+  }
 
   @override
   Future<AuthClient> getAuthenticatedClient() async {
@@ -34,10 +49,8 @@ class GoogleAuthWebService implements GoogleAuthService {
       }
     }
 
-    // 2. 만약 기존 세션으로 client 생성이 안 된다면 (또는 최초 로그인 시)
-    // FedCM 자동 인증에 의존하지 않고, 사용자가 직접 권한을 승인할 수 있도록 signIn() 호출
+    // 2. 기존 세션으로 client 생성이 안 된다면 사용자 로그인 팝업 호출
     try {
-      // 이미 진행 중인 silent 세션 정리 후 수동 로그인 팝업 호출
       final GoogleSignInAccount? account = await _googleSignIn.signIn();
 
       if (account != null) {
