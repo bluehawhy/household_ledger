@@ -17,6 +17,7 @@ class MainUI extends StatefulWidget {
 class _MainUIState extends State<MainUI> {
   bool _isLoading = true;
   bool _authorizationRequired = false;
+  bool _processingAccount = false;
   String? _errorMessage;
 
   final GoogleAuthManager _authManager = GoogleAuthManager();
@@ -29,6 +30,8 @@ class _MainUIState extends State<MainUI> {
 
     // Web의 Google Identity Services 버튼은 SDK가 인증을 완료한 뒤
     // onCurrentUserChanged 이벤트를 발생시키므로 이 이벤트를 구독한다.
+    // 로그인 이벤트는 초기 로딩 중에도 처리해야 새로고침 후 복원된 계정을
+    // 바로 OverviewPage로 보낼 수 있다.
     _accountSubscription = _authManager.onCurrentUserChanged.listen(
       _handleAccountChanged,
       onError: (error, stackTrace) {
@@ -40,38 +43,35 @@ class _MainUIState extends State<MainUI> {
   }
 
   Future<void> _handleAccountChanged(dynamic account) async {
-    if (account == null || !mounted || _isLoading) return;
+    if (account == null || !mounted || _processingAccount) return;
 
     AppLogger.i('[AUTH] Google 계정 변경 이벤트 수신');
-    await _checkApiAuthorization(account);
+    _processingAccount = true;
+    try {
+      await _checkApiAuthorization(account);
+    } finally {
+      _processingAccount = false;
+    }
   }
 
-  /// 앱 시작/새로고침 시 기존 Google 로그인 세션만 복원한다.
-  /// API 권한이 필요한 경우에는 MainUI에서 사용자에게 권한 연결을 요청한다.
+  /// 앱 시작 시 즉시 currentUser만 확인한다.
+  ///
+  /// Web에서는 signInSilently()가 FedCM을 최대 수십 초 기다릴 수 있으므로
+  /// 초기 진입에서 호출하지 않는다. 로그인된 세션이 비동기로 복원되면
+  /// onCurrentUserChanged 이벤트가 이를 감지해 OverviewPage로 이동한다.
   Future<void> _checkSignInState() async {
     AppLogger.i('[AUTH] _checkSignInState() 시작');
 
     try {
       AppLogger.i('[AUTH] currentUser 확인 시작');
-      var account = _authManager.currentUser;
+      final account = _authManager.currentUser;
       AppLogger.i(
         '[AUTH] currentUser 결과: ${account == null ? 'null (계정 없음)' : '계정 있음'}',
       );
 
       if (account == null) {
-        AppLogger.i('[AUTH] currentUser가 null → signInSilently() 호출');
-        account = await _authManager.signInSilently();
-        AppLogger.i(
-          '[AUTH] signInSilently() 결과: ${account == null ? 'null (복원 실패)' : '계정 복원 성공'}',
-        );
-      } else {
-        AppLogger.i('[AUTH] 기존 currentUser 사용 → signInSilently() 생략');
-      }
-
-      if (account == null) {
-        AppLogger.i('[AUTH] Google 계정 복원 실패 → 로그인 화면 유지');
-        final prefs = await SharedPreferences.getInstance();
-        await prefs.setBool('is_logged_in', false);
+        AppLogger.i('[AUTH] currentUser 없음 → silent sign-in 대기 없이 로그인 화면 표시');
+        await _saveLoggedInState(false);
         return;
       }
 
@@ -79,10 +79,9 @@ class _MainUIState extends State<MainUI> {
       AppLogger.i('[AUTH] 계정 이메일: ${account.email}');
       await _saveLoggedInState(true);
 
-      // silent 복원 성공 후에는 사용자 interaction 없이 권한을 요청하지 않는다.
       await _checkApiAuthorization(account);
     } catch (e, stackTrace) {
-      AppLogger.i('[AUTH] 자동 로그인/권한 확인 중 오류 발생: $e');
+      AppLogger.i('[AUTH] 로그인/권한 확인 중 오류 발생: $e');
       AppLogger.i('[AUTH] StackTrace: $stackTrace');
       if (mounted) {
         setState(() {
@@ -107,11 +106,13 @@ class _MainUIState extends State<MainUI> {
 
       if (!authorized) {
         AppLogger.i('[AUTH] Google API 권한 필요 → MainUI에서 권한 연결 대기');
-        setState(() {
-          _authorizationRequired = true;
-          _errorMessage = 'Google Drive와 Sheets 접근 권한이 필요합니다.';
-          _isLoading = false;
-        });
+        if (mounted) {
+          setState(() {
+            _authorizationRequired = true;
+            _errorMessage = 'Google Drive와 Sheets 접근 권한이 필요합니다.';
+            _isLoading = false;
+          });
+        }
         return;
       }
 
@@ -243,7 +244,7 @@ class _MainUIState extends State<MainUI> {
                 children: const [
                   CircularProgressIndicator(),
                   SizedBox(height: 16),
-                  Text('Google 로그인 및 권한 확인 중...'),
+                  Text('Google 로그인 상태 확인 중...'),
                 ],
               )
             : _authorizationRequired
