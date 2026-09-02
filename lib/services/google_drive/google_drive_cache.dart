@@ -162,6 +162,17 @@ class LedgerCacheManager {
     );
   }
 
+  /// 전체 계정의 폴더 ID 캐시 반환
+  Map<String, Map<String, String>> get allFolderIds =>
+      Map<String, Map<String, String>>.fromEntries(
+        _folderIdMap.entries.map(
+          (entry) => MapEntry(
+            entry.key,
+            Map<String, String>.from(entry.value),
+          ),
+        ),
+      );
+
   /// 특정 연도의 현재 계정 시트 ID 가져오기
   String? getSpreadsheetId(int year) => _yearToSpreadsheetIdMap[year];
 
