@@ -34,6 +34,7 @@ class LedgerDataService {
     '내용',
     '금액',
     '메모',
+    'raw_txt',
   ];
 
   Future<void> init(AuthClient client) async {
@@ -163,11 +164,13 @@ class LedgerDataService {
     required AuthClient client,
     required int year,
     required int month,
+    String? accountEmail,
   }) {
     return _readService.getMonthlyLedger(
       client: client,
       year: year,
       month: month,
+      accountEmail: accountEmail,
     );
   }
 }

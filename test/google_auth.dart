@@ -18,6 +18,10 @@ void main() {
       );
       expect(
         GoogleAuthManager.defaultScopes,
+        contains(drive.DriveApi.driveMetadataReadonlyScope),
+      );
+      expect(
+        GoogleAuthManager.defaultScopes,
         contains(sheets.SheetsApi.spreadsheetsScope),
       );
     });

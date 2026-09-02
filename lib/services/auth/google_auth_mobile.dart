@@ -29,7 +29,11 @@ class GoogleAuthMobileService extends GoogleAuthService {
   }
 
   Future<void> signOut() async {
-    await _googleSignIn.signOut();
+    try {
+      await _googleSignIn.disconnect();
+    } catch (_) {
+      await _googleSignIn.signOut();
+    }
   }
 
   @override

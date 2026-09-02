@@ -91,16 +91,10 @@ class DriveFolderService {
   // ===========================================================================
 
   /// 나에게 공유된 특정 이름의 폴더 목록 조회
-  ///
-  /// 현재 단계에서는 실제 결과를 변경하지 않고, 먼저 현재 Drive API 인증
-  /// 범위에서 조회 가능한 전체 폴더를 로그로 확인한다.
   Future<Map<String, Map<String, String>>> getSharedFolders({
     required String folderName,
   }) async {
     final sharedFolderMap = <String, Map<String, String>>{};
-
-    AppLogger.i("🔎 [공유 폴더 전체 진단 시작] '$folderName'");
-    await _logAllVisibleFolders();
 
     final query = _buildSharedFolderQuery(folderName);
     AppLogger.i("🔎 [공유 폴더 검색 시작] 폴더명: '$folderName'");
@@ -144,64 +138,6 @@ class DriveFolderService {
       AppLogger.e("❌ [공유 폴더 검색 실패] '$folderName': $e");
       AppLogger.e('❌ [공유 폴더 검색 StackTrace] $stackTrace');
       rethrow;
-    }
-  }
-
-  /// 현재 인증된 Drive API 세션에서 조회 가능한 모든 폴더를 페이지 단위로
-  /// 조회하여 로그에 남긴다. 실제 서비스 결과에는 영향을 주지 않는 진단용이다.
-  Future<void> _logAllVisibleFolders() async {
-    const query = "mimeType = 'application/vnd.google-apps.folder' and trashed = false";
-
-    AppLogger.i('🔎 [전체 폴더 진단 Query] $query');
-    AppLogger.i(
-      '🔎 [전체 폴더 진단 옵션] corpora=user, spaces=drive, '
-      'includeItemsFromAllDrives=true',
-    );
-
-    var pageToken;
-    var page = 0;
-    var total = 0;
-
-    try {
-      do {
-        page++;
-        final result = await _driveApi.files.list(
-          q: query,
-          corpora: 'user',
-          spaces: 'drive',
-          pageSize: 1000,
-          pageToken: pageToken,
-          includeItemsFromAllDrives: true,
-          supportsAllDrives: true,
-          $fields:
-              'nextPageToken, incompleteSearch, files(id, name, mimeType, owners(emailAddress), sharingUser(emailAddress), driveId, parents, shared)',
-        );
-
-        final files = result.files ?? <drive.File>[];
-        total += files.length;
-
-        AppLogger.i(
-          '🔎 [전체 폴더 진단 Page $page] ${files.length}개, '
-          'incompleteSearch=${result.incompleteSearch}, '
-          'nextPage=${result.nextPageToken != null}',
-        );
-
-        for (final file in files) {
-          AppLogger.i(
-            '   ├─ name=${file.name}, id=${file.id}, '
-            'owners=${file.owners?.map((o) => o.emailAddress).toList()}, '
-            'sharingUser=${file.sharingUser?.emailAddress}, '
-            'driveId=${file.driveId}, shared=${file.shared}, parents=${file.parents}',
-          );
-        }
-
-        pageToken = result.nextPageToken;
-      } while (pageToken != null && pageToken.isNotEmpty);
-
-      AppLogger.i('🔎 [전체 폴더 진단 완료] 총 ${total}개');
-    } catch (e, stackTrace) {
-      AppLogger.e('❌ [전체 폴더 진단 실패] $e');
-      AppLogger.e('❌ [전체 폴더 진단 StackTrace] $stackTrace');
     }
   }
 
@@ -270,6 +206,27 @@ class DriveFolderService {
       AppLogger.e('❌ 폴더 공유 권한 제거 실패: $e');
       rethrow;
     }
+  }
+
+  /// 폴더에 직접 편집 권한을 가진 사용자 이메일 목록 조회
+  Future<List<String>> getSharedFolderEmails(String folderId) async {
+    final permissionsList = await _driveApi.permissions.list(
+      folderId,
+      $fields: 'permissions(type, role, emailAddress, deleted)',
+    );
+
+    return permissionsList.permissions
+            ?.where(
+              (permission) =>
+                  permission.type == 'user' &&
+                  permission.role != 'owner' &&
+                  permission.deleted != true &&
+                  permission.emailAddress != null,
+            )
+            .map((permission) => permission.emailAddress!.toLowerCase())
+            .toSet()
+            .toList() ??
+        [];
   }
 
   // ===========================================================================

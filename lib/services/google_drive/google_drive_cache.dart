@@ -196,6 +196,15 @@ class LedgerCacheManager {
   Map<String, String> getSpreadsheetsByAccount(String accountEmail) =>
       Map<String, String>.from(_spreadsheetIdMap[accountEmail] ?? {});
 
+  /// 특정 계정의 연도별 가계부 스프레드시트 ID 조회
+  String? getSpreadsheetIdForAccount({
+    required String accountEmail,
+    required int year,
+    String folderName = '가계부',
+  }) {
+    return _spreadsheetIdMap[accountEmail]?['${folderName}_$year'];
+  }
+
   /// 캐시된 전체 계정 이메일 목록 반환
   List<String> get cachedAccountEmails => _folderIdMap.keys.toList();
 

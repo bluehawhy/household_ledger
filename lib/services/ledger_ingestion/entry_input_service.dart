@@ -19,6 +19,7 @@ class SingleEntryService {
     AuthClient authClient,
     sheets.SheetsApi sheetsApi,
     Map<String, dynamic> itemMap,
+    {String? accountEmail}
   ) async {
     if (itemMap.isEmpty) {
       return ParseResult.fail;
@@ -35,7 +36,12 @@ class SingleEntryService {
 
       // 💡 setupLedgerSpreadsheetForYear 호출로 캐시 확인 및 생성/가져오기 동시 처리
       final String? spreadsheetId = await sheetService.sheetSetupService
-          .setupLedgerSpreadsheetForYear(authClient, year);
+          .setupLedgerSpreadsheetForYear(
+            authClient,
+            year,
+            accountEmail: accountEmail,
+            createIfNotFound: accountEmail == null,
+          );
 
       // Null Safety Check: 시트 ID를 가져올 수 없으면 실패 처리
       if (spreadsheetId == null) {
@@ -89,6 +95,7 @@ class MultiEntryService {
     AuthClient authClient,
     sheets.SheetsApi sheetsApi,
     List<Map<String, dynamic>> itemMaps,
+    {String? accountEmail}
   ) async {
     int successCount = 0;
     int duplicateCount = 0;
@@ -131,7 +138,12 @@ class MultiEntryService {
 
       // 💡 연도에 맞는 spreadsheetId 가져오기 (없으면 자동 생성)
       final String? spreadsheetId = await sheetService.sheetSetupService
-          .setupLedgerSpreadsheetForYear(authClient, year);
+          .setupLedgerSpreadsheetForYear(
+            authClient,
+            year,
+            accountEmail: accountEmail,
+            createIfNotFound: accountEmail == null,
+          );
 
       // Null-safety 체크: 시트 ID를 얻지 못했다면 해당 연도의 모든 항목을 실패 건수로 합산 처리
       if (spreadsheetId == null) {

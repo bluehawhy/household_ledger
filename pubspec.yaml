@@ -36,7 +36,6 @@ dev_dependencies:
 flutter:
   uses-material-design: true
   assets:
-     - assets/client_secret.json
      - assets/card_bin_data.json
      - assets/ledger_ingestion_info.json
 

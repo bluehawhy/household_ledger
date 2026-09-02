@@ -110,7 +110,7 @@ class LedgerWriteService {
 
     final updatedNewItem = _withResolvedCategory(newItem);
     final monthSheetName = '${oldItem.date.month}월';
-    final range = "'$monthSheetName'!A1:G1000";
+    final range = "'$monthSheetName'!A1:H1000";
 
     try {
       final response = await sheetsApi.spreadsheets.values.get(
@@ -178,7 +178,7 @@ class LedgerWriteService {
         await sheetsApi.spreadsheets.values.update(
           sheets.ValueRange(values: [LedgerRowMapper.defaultHeader]),
           spreadsheetId,
-          "'$sheetName'!A1:G1",
+          "'$sheetName'!A1:H1",
           valueInputOption: 'USER_ENTERED',
         );
         existingRows.add(LedgerRowMapper.defaultHeader);
@@ -208,7 +208,7 @@ class LedgerWriteService {
 
       final startRow = existingRows.length - newRows.length + 1;
       final endRow = startRow + newRows.length - 1;
-      final targetRange = "'$sheetName'!A$startRow:G$endRow";
+      final targetRange = "'$sheetName'!A$startRow:H$endRow";
 
       await sheetsApi.spreadsheets.values.batchUpdate(
         sheets.BatchUpdateValuesRequest(
@@ -330,7 +330,7 @@ class LedgerWriteService {
     }
 
     final targetRow = existingRows.length + 1;
-    final targetRange = "'$sheetName'!A$targetRow:G$targetRow";
+    final targetRange = "'$sheetName'!A$targetRow:H$targetRow";
 
     try {
       await sheetsApi.spreadsheets.values.update(
@@ -374,7 +374,7 @@ class LedgerWriteService {
     String spreadsheetId,
     String sheetName,
   ) async {
-    final range = "'$sheetName'!A1:G1000";
+    final range = "'$sheetName'!A1:H1000";
     final response = await sheetsApi.spreadsheets.values.get(
       spreadsheetId,
       range,
@@ -430,7 +430,7 @@ class LedgerWriteService {
       spreadsheetId,
     );
 
-    final headerRange = "'$sheetName'!A1:G1";
+    final headerRange = "'$sheetName'!A1:H1";
     await sheetsApi.spreadsheets.values.update(
       sheets.ValueRange(
         range: headerRange,

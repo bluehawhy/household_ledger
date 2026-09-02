@@ -8,7 +8,12 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:household_ledger/services/utils/app_logger.dart';
 
 class MainUI extends StatefulWidget {
-  const MainUI({super.key});
+  final bool skipSessionRestore;
+
+  const MainUI({
+    super.key,
+    this.skipSessionRestore = false,
+  });
 
   @override
   State<MainUI> createState() => _MainUIState();
@@ -19,6 +24,7 @@ class _MainUIState extends State<MainUI> {
   bool _authorizationRequired = false;
   bool _processingAccount = false;
   bool _authFlowInProgress = false;
+  bool _sessionRestoreDisabled = false;
   String? _errorMessage;
 
   final GoogleAuthManager _authManager = GoogleAuthManager();
@@ -28,6 +34,7 @@ class _MainUIState extends State<MainUI> {
   void initState() {
     super.initState();
     AppLogger.i('[AUTH] MainUI initState()');
+    _sessionRestoreDisabled = widget.skipSessionRestore;
 
     _accountSubscription = _authManager.onCurrentUserChanged.listen(
       _handleAccountChanged,
@@ -40,11 +47,16 @@ class _MainUIState extends State<MainUI> {
   }
 
   Future<void> _handleAccountChanged(dynamic account) async {
-    if (account == null || !mounted || _processingAccount || _authFlowInProgress) {
+    if (account == null ||
+        !mounted ||
+        _processingAccount ||
+        _authFlowInProgress) {
       return;
     }
 
     AppLogger.i('[AUTH] Google 계정 변경 이벤트 수신');
+    // Web의 GSI 버튼은 _handleSignIn을 거치지 않고 이 이벤트만 전달한다.
+    _sessionRestoreDisabled = false;
     _processingAccount = true;
     _authFlowInProgress = true;
     try {
@@ -56,6 +68,12 @@ class _MainUIState extends State<MainUI> {
   }
 
   Future<void> _checkSignInState() async {
+    if (_sessionRestoreDisabled) {
+      AppLogger.i('[AUTH] 명시적 로그아웃 상태 → 자동 로그인 복원 건너뜀');
+      if (mounted) setState(() => _isLoading = false);
+      return;
+    }
+
     if (_authFlowInProgress) {
       AppLogger.i('[AUTH] 다른 인증 흐름이 진행 중 → 초기 로그인 상태 확인 생략');
       return;
@@ -65,6 +83,13 @@ class _MainUIState extends State<MainUI> {
     AppLogger.i('[AUTH] _checkSignInState() 시작');
 
     try {
+      final preferences = await SharedPreferences.getInstance();
+      if (preferences.getBool('is_logged_in') == false) {
+        AppLogger.i('[AUTH] 저장된 로그아웃 상태 → 자동 로그인 복원 건너뜀');
+        _sessionRestoreDisabled = true;
+        return;
+      }
+
       var account = _authManager.currentUser;
       AppLogger.i(
         '[AUTH] currentUser 결과: ${account == null ? 'null (계정 없음)' : '계정 있음'}',
@@ -113,8 +138,15 @@ class _MainUIState extends State<MainUI> {
     if (!mounted) return;
 
     try {
-      final authorized = await _authManager.canAccessScopes();
+      var authorized = await _authManager.canAccessScopes();
       AppLogger.i('[AUTH] Google API 권한 상태: $authorized');
+
+      if (!authorized) {
+        AppLogger.i('[AUTH] 기존 Google API 인증 클라이언트 복원 시도');
+        final restoredClient = await _authManager.restoreAuthorizedClient();
+        authorized = restoredClient != null;
+        AppLogger.i('[AUTH] Google API 인증 클라이언트 복원 결과: $authorized');
+      }
 
       if (!authorized) {
         AppLogger.i('[AUTH] Google API 권한 필요 → MainUI에서 권한 연결 대기');
@@ -150,6 +182,7 @@ class _MainUIState extends State<MainUI> {
     if (_isLoading || _authFlowInProgress) return;
 
     _authFlowInProgress = true;
+    _sessionRestoreDisabled = false;
     AppLogger.i('[AUTH] Google 로그인 시작');
     setState(() {
       _isLoading = true;

@@ -40,6 +40,14 @@ class GoogleAuthWebService implements GoogleAuthService {
     }
   }
 
+  Future<void> signOut() async {
+    try {
+      await _googleSignIn.disconnect();
+    } catch (_) {
+      await _googleSignIn.signOut();
+    }
+  }
+
   Future<bool> canAccessScopes() async {
     final account = _googleSignIn.currentUser;
     if (account == null) return false;

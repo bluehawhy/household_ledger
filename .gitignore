@@ -46,4 +46,5 @@ app.*.map.json
 
 # client_secret info
 client_secret.json
+_client_secret.json
 credentials.json

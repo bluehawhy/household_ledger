@@ -12,7 +12,8 @@ import 'google_auth_stub.dart'
 
 class GoogleAuthManager {
   static final List<String> defaultScopes = [
-    drive.DriveApi.driveScope,
+    drive.DriveApi.driveFileScope,
+    drive.DriveApi.driveMetadataReadonlyScope,
     sheets.SheetsApi.spreadsheetsScope,
   ];
 

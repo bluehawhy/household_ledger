@@ -8,8 +8,13 @@ import 'package:household_ledger/services/ledger_ingestion/ledger_ingestion_serv
 
 class LedgerIngestionUI extends StatefulWidget {
   final GoogleSignInAccount googleUser;
+  final String accountEmail;
 
-  const LedgerIngestionUI({super.key, required this.googleUser});
+  const LedgerIngestionUI({
+    super.key,
+    required this.googleUser,
+    required this.accountEmail,
+  });
 
   @override
   State<LedgerIngestionUI> createState() => LedgerIngestionUIState();
@@ -94,6 +99,7 @@ class LedgerIngestionUIState extends State<LedgerIngestionUI> {
       final LedgerSubmitResult result = await _ingestionService.processAndSubmit(
         authClient: authClient,
         rawInput: rawInput,
+        accountEmail: widget.accountEmail,
       );
 
       // 3. UI 갱신 및 다이얼로그 표시
@@ -228,7 +234,7 @@ class LedgerIngestionUIState extends State<LedgerIngestionUI> {
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
             Text(
-              '계정: ${widget.googleUser.email}',
+              '기준 계정: ${widget.accountEmail}',
               style: TextStyle(color: Colors.grey[700], fontSize: 13),
             ),
             const SizedBox(height: 12),

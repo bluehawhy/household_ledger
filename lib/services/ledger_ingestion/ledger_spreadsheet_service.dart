@@ -5,6 +5,7 @@ import 'package:household_ledger/services/google_drive/google_drive_cache.dart';
 import 'package:household_ledger/services/google_drive/google_drive_folder.dart';
 import 'package:household_ledger/services/google_drive/google_drive_spreadsheet.dart';
 import 'package:household_ledger/services/ledger_ingestion/ledger_item.dart';
+import 'package:household_ledger/services/ledger_ingestion/ledger_row_mapper.dart';
 import 'package:household_ledger/services/utils/app_logger.dart';
 
 
@@ -15,7 +16,8 @@ import 'package:household_ledger/services/utils/app_logger.dart';
 class LedgerSpreadsheetService {
   final CategoryMapper categoryMapper = CategoryMapper();
   final LedgerCacheManager cacheManager = LedgerCacheManager();
-  final Map<int, Future<String?>> _spreadsheetInitFutures = {};
+  final Map<String, Future<String?>> _spreadsheetInitFutures = {};
+  String? _currentUserEmail;
 
   /// 초기화 작업의 중복 실행을 막기 위한 Future.
   Future<void>? _initializationFuture;
@@ -24,6 +26,11 @@ class LedgerSpreadsheetService {
   bool get isInitialized => _initializationFuture == null
       ? false
       : cacheManager.isInitialized;
+
+  bool isCurrentAccount(String? accountEmail) {
+    return accountEmail == null ||
+        accountEmail.toLowerCase() == _currentUserEmail?.toLowerCase();
+  }
 
   /// 서비스 초기화 시 JSON 설정 파일 및 구글 드라이브 시트 목록을 사전 스캔한다.
   Future<void> init(
@@ -60,6 +67,7 @@ class LedgerSpreadsheetService {
     final folderRepo = DriveFolderService(driveApi);
     final sheetRepo = DriveSheetService(driveApi);
     final currentUserEmail = await folderRepo.getUserEmail();
+    _currentUserEmail = currentUserEmail;
 
     AppLogger.i("📁 현재 Google 계정: $currentUserEmail");
 
@@ -96,36 +104,44 @@ class LedgerSpreadsheetService {
     AuthClient client,
     int year, {
     bool createIfNotFound = true,
+    String? accountEmail,
   }) async {
     // OverviewPage/기존 호출부에서 init()을 생략하더라도
     // 여기서 전체 폴더/스프레드시트 캐시를 먼저 준비한다.
     await _ensureInitialized(client);
 
-    final cachedId = cacheManager.getSpreadsheetId(year);
+    final cachedId = accountEmail == null
+        ? cacheManager.getSpreadsheetId(year)
+        : cacheManager.getSpreadsheetIdForAccount(
+            accountEmail: accountEmail,
+            year: year,
+          );
     if (cachedId != null) {
       return cachedId;
     }
 
-    if (_spreadsheetInitFutures.containsKey(year)) {
+    final spreadsheetCacheKey = '${accountEmail ?? 'my'}_$year';
+    if (_spreadsheetInitFutures.containsKey(spreadsheetCacheKey)) {
       AppLogger.i("💡 [$year년] 시트 확인 작업 진행 중...");
-      return await _spreadsheetInitFutures[year]!;
+      return await _spreadsheetInitFutures[spreadsheetCacheKey]!;
     }
 
     final initFuture = _setupLedgerSpreadsheetForYearInternal(
       client,
       year,
       createIfNotFound: createIfNotFound,
+      accountEmail: accountEmail,
     );
-    _spreadsheetInitFutures[year] = initFuture;
+    _spreadsheetInitFutures[spreadsheetCacheKey] = initFuture;
 
     try {
       final spreadsheetId = await initFuture;
-      if (spreadsheetId != null) {
+      if (spreadsheetId != null && accountEmail == null) {
         cacheManager.registerSpreadsheetId(year, spreadsheetId);
       }
       return spreadsheetId;
     } finally {
-      _spreadsheetInitFutures.remove(year);
+      _spreadsheetInitFutures.remove(spreadsheetCacheKey);
     }
   }
 
@@ -133,6 +149,7 @@ class LedgerSpreadsheetService {
       AuthClient client,
       int year, {
       required bool createIfNotFound,
+      String? accountEmail,
     }) async {
       if (!categoryMapper.isLoaded) {
         await categoryMapper.loadCategoryJson();
@@ -145,8 +162,16 @@ class LedgerSpreadsheetService {
       const folderName = "가계부";
       String? folderId;
 
+      if (accountEmail != null) {
+        folderId = cacheManager.getFoldersByAccount(accountEmail)?[folderName];
+        if (folderId == null) {
+          AppLogger.i("⚠️ [$accountEmail] '$folderName' 공유 폴더를 찾지 못했습니다.");
+          return null;
+        }
+      }
+
       // 1. 기존 폴더 조회
-      folderId = await folderRepo.getFolderId(folderName);
+      folderId ??= await folderRepo.getFolderId(folderName);
 
       // 2. 폴더가 없고 createIfNotFound가 false인 경우 (타 계정 등) 진행 불가
       if (folderId == null && !createIfNotFound) {
@@ -174,7 +199,7 @@ class LedgerSpreadsheetService {
 
       // 5. 스프레드시트가 없고 createIfNotFound가 false인 경우 생성하지 않음
       if (!createIfNotFound) {
-        AppLogger.i("⚠️ '$fileName' 파일이 존재하지 않으며, 타 계정이므로 신규 생성을 진행하지 않습니다.");
+        AppLogger.i("⚠️ '$fileName' 파일이 존재하지 않아 신규 생성을 진행하지 않습니다.");
         return null;
       }
 
@@ -357,6 +382,16 @@ class LedgerSpreadsheetService {
         values: expenseTable,
       ),
     );
+
+    // 4. 모든 월별 시트에 거래 데이터 헤더 생성
+    for (int month = 1; month <= 12; month++) {
+      data.add(
+        sheets.ValueRange(
+          range: "'$month월'!A1:H1",
+          values: [LedgerRowMapper.defaultHeader],
+        ),
+      );
+    }
 
     final batchUpdateRequest = sheets.BatchUpdateValuesRequest(
       valueInputOption: "USER_ENTERED",

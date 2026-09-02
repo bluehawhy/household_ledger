@@ -27,6 +27,12 @@ class DesktopGoogleAuthService implements GoogleAuthService {
   @override
   Object? get currentUser => null;
 
+  Future<void> signOut() async {
+    if (await _tokenFile.exists()) {
+      await _tokenFile.delete();
+    }
+  }
+
   /// client_secret.json 읽기
   ///
   /// Pure Dart에서는 File로 직접 읽는다.
@@ -70,6 +76,12 @@ class DesktopGoogleAuthService implements GoogleAuthService {
             jsonMap['accessToken'] as Map<String, dynamic>?;
 
         if (accessTokenMap != null) {
+          final savedScopes =
+              (jsonMap['scopes'] as List<dynamic>?)?.cast<String>() ?? [];
+          if (!_matchesRequestedScopes(savedScopes)) {
+            throw Exception('저장된 인증 정보의 권한 범위가 현재 설정과 다릅니다.');
+          }
+
           var credentials = AccessCredentials(
             AccessToken(
               accessTokenMap['type'] ?? 'Bearer',
@@ -77,9 +89,7 @@ class DesktopGoogleAuthService implements GoogleAuthService {
               DateTime.parse(accessTokenMap['expiry']),
             ),
             jsonMap['refreshToken'],
-            (jsonMap['scopes'] as List<dynamic>?)
-                    ?.cast<String>() ??
-                scopes,
+            savedScopes,
             idToken: jsonMap['idToken'],
           );
 
@@ -139,8 +149,10 @@ class DesktopGoogleAuthService implements GoogleAuthService {
   }
 
 
-
-
+  bool _matchesRequestedScopes(List<String> savedScopes) {
+    return savedScopes.length == scopes.length &&
+        savedScopes.toSet().containsAll(scopes);
+  }
 
   void _openBrowser(String url) {
     if (Platform.isWindows) {

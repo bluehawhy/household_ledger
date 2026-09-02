@@ -206,11 +206,11 @@ class TextParserService {
     switch (inputType) {
       case InputType.excel:
       case InputType.csv:
-        // Excel/CSV: 원본 줄바꿈(\n) 기준으로 분할 후, 각 줄에 대해 전처리(Pre-clean) 적용
+        // Excel/CSV: 원본 줄 단위 그대로 유지해 raw_txt로도 활용한다.
         return rawInput
             .replaceAll('\r', '')
             .split('\n')
-            .map((line) => _preCleanInput(line).trim())
+            .map((line) => line.trim())
             .where((line) => line.isNotEmpty)
             .toList();
 
@@ -311,6 +311,7 @@ class TextParserService {
     'description': description,
     'amount': amount,
     'category': category ?? "미입력",
+    'raw_txt': input.trim(),
   };
 
   AppLogger.i("[Map]: $result");

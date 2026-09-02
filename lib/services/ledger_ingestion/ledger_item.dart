@@ -26,6 +26,7 @@ class LedgerItem {
   final String description;   // 내용
   final int amount;           // 금액
   final String memo;          // 기타 메모
+  final String rawTxt;        // 사용자 입력 원문
 
   const LedgerItem({
     required this.date,
@@ -35,6 +36,7 @@ class LedgerItem {
     required this.amount,
     this.payMethod,
     this.memo = '',
+    this.rawTxt = '',
   });
 
   /// YYYY-MM-DD 형식의 날짜 문자열 반환 게터
@@ -73,6 +75,7 @@ class LedgerItem {
       description: map['description'] as String? ?? '미지정 내역',
       amount: (map['amount'] as num?)?.toInt() ?? 0,
       memo: map['memo'] as String? ?? '',
+      rawTxt: map['raw_txt'] as String? ?? map['rawTxt'] as String? ?? '',
     );
   }
 
@@ -86,6 +89,7 @@ class LedgerItem {
       'description': description,
       'amount': amount,
       'memo': memo,
+      'raw_txt': rawTxt,
     };
   }
 
@@ -105,6 +109,7 @@ class LedgerItem {
     String? description,
     int? amount,
     String? memo,
+    String? rawTxt,
   }) {
     return LedgerItem(
       date: date ?? this.date,
@@ -114,12 +119,13 @@ class LedgerItem {
       description: description ?? this.description,
       amount: amount ?? this.amount,
       memo: memo ?? this.memo,
+      rawTxt: rawTxt ?? this.rawTxt,
     );
   }
 
   @override
   String toString() {
-    return 'LedgerItem(date: $formattedDate, type: ${type.name}, category: $category, description: $description, amount: $amount, payMethod: $payMethod, memo: $memo)';
+    return 'LedgerItem(date: $formattedDate, type: ${type.name}, category: $category, description: $description, amount: $amount, payMethod: $payMethod, memo: $memo, rawTxt: $rawTxt)';
   }
 
   @override
@@ -132,7 +138,8 @@ class LedgerItem {
         other.payMethod == payMethod &&
         other.description == description &&
         other.amount == amount &&
-        other.memo == memo;
+        other.memo == memo &&
+        other.rawTxt == rawTxt;
   }
 
   @override
@@ -145,6 +152,7 @@ class LedgerItem {
       description,
       amount,
       memo,
+      rawTxt,
     );
   }
 }

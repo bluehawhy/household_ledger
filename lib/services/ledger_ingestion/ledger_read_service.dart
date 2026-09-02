@@ -66,10 +66,16 @@ class LedgerReadService {
     required AuthClient client,
     required int year,
     required int month,
+    String? accountEmail,
   }) async {
     final sheetsApi = sheets.SheetsApi(client);
-    final spreadsheetId =
-        await sheetSetupService.setupLedgerSpreadsheetForYear(client, year);
+    await sheetSetupService.init(client);
+    final spreadsheetId = await sheetSetupService.setupLedgerSpreadsheetForYear(
+      client,
+      year,
+      accountEmail: accountEmail,
+      createIfNotFound: sheetSetupService.isCurrentAccount(accountEmail),
+    );
 
     if (spreadsheetId == null) {
       AppLogger.i(
@@ -79,7 +85,7 @@ class LedgerReadService {
     }
 
     final sheetName = '$month월';
-    final range = "'$sheetName'!A1:G1000";
+    final range = "'$sheetName'!A1:H1000";
 
     try {
       final response = await sheetsApi.spreadsheets.values.get(

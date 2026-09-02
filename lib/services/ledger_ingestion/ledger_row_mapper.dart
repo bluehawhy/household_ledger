@@ -11,6 +11,7 @@ class LedgerRowMapper {
     '내용',
     '금액',
     '메모',
+    'raw_txt',
   ];
 
   /// [LedgerItem]을 Google Sheets 한 행으로 변환한다.
@@ -25,6 +26,7 @@ class LedgerRowMapper {
       item.description,
       item.amount,
       item.memo,
+      item.rawTxt,
     ];
   }
 
@@ -41,6 +43,7 @@ class LedgerRowMapper {
     final rawDescription = row[4].toString().trim();
     final rawAmount = row[5].toString().replaceAll(',', '').trim();
     final rawMemo = row.length > 6 ? row[6].toString().trim() : '';
+    final rawTxt = row.length > 7 ? row[7].toString().trim() : '';
 
     if (rawDate.isEmpty || rawAmount.isEmpty || rawDescription.isEmpty) {
       return null;
@@ -63,6 +66,7 @@ class LedgerRowMapper {
           ? rawPayMethod
           : null,
       memo: rawMemo,
+      rawTxt: rawTxt,
     );
   }
 

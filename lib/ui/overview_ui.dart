@@ -1,13 +1,14 @@
 //overview_ui.dart
 import 'package:flutter/material.dart';
 import 'package:google_sign_in/google_sign_in.dart';
+import 'package:googleapis/drive/v3.dart' as drive;
 import 'package:fl_chart/fl_chart.dart';
 import 'package:googleapis_auth/googleapis_auth.dart';
 import 'package:intl/intl.dart';
 
 // 서비스 및 UI 클래스 임포트
 import 'package:household_ledger/services/auth/google_auth.dart';
-import 'package:household_ledger/services/google_drive/google_drive_cache.dart';
+import 'package:household_ledger/services/google_drive/google_drive_ledger_settings.dart';
 import 'package:household_ledger/services/ledger_ingestion/ledger_item.dart';
 import 'package:household_ledger/services/ledger_ingestion/ledger_transaction_service.dart';
 
@@ -31,13 +32,13 @@ class _OverviewPageState extends State<OverviewPage> {
 
   final GoogleAuthManager _authManager = GoogleAuthManager();
   final HouseholdSheetService _sheetService = HouseholdSheetService();
-  final LedgerCacheManager _cacheManager = LedgerCacheManager();
 
   late String _currentSelectedEmail;
   final NumberFormat _currencyFormatter = NumberFormat('#,###');
 
   bool _isLoading = true;
   String? _errorMessage;
+  bool _hasRestoredSelectedAccount = false;
 
   List<LedgerItem> _rawExpenses = [];
   List<LedgerItem> _rawIncomes = [];
@@ -78,11 +79,14 @@ class _OverviewPageState extends State<OverviewPage> {
       final targetMonth = now.month;
 
       final AuthClient client = await _authManager.getClient();
+      await _restoreSelectedAccount(client);
 
       final List<LedgerItem> totalItems = await _sheetService.getMonthlyLedger(
         client: client,
         year: targetYear,
         month: targetMonth,
+        // Overview는 로그인 계정이 아니라 저장된 가계부 기준 계정에서 조회한다.
+        accountEmail: _currentSelectedEmail,
       );
 
       final List<LedgerItem> expenses = [];
@@ -149,6 +153,47 @@ class _OverviewPageState extends State<OverviewPage> {
     }
   }
 
+  Future<void> _restoreSelectedAccount(AuthClient client) async {
+    if (_hasRestoredSelectedAccount) return;
+
+    await _sheetService.init(client);
+    final cacheManager = _sheetService.sheetSetupService.cacheManager;
+    final ownerEmail = widget.googleUser.email;
+    final ownerFolderId = cacheManager.getFoldersByAccount(ownerEmail)?['가계부'];
+    if (ownerFolderId == null) return;
+
+    final settingsService = DriveLedgerSettingsService(drive.DriveApi(client));
+    LedgerDriveSettings? savedSettings;
+    try {
+      savedSettings = await settingsService.load(ownerFolderId: ownerFolderId);
+    } catch (e) {
+      AppLogger.i('⚠️ 저장된 가계부 기준 계정 설정을 읽지 못했습니다: $e');
+    }
+    final selectedFolderId = savedSettings == null
+        ? null
+        : cacheManager
+            .getFoldersByAccount(savedSettings.accountEmail)?['가계부'];
+
+    if (savedSettings != null && selectedFolderId == savedSettings.folderId) {
+      _currentSelectedEmail = savedSettings.accountEmail;
+    } else {
+      _currentSelectedEmail = ownerEmail;
+      try {
+        await settingsService.save(
+          ownerFolderId: ownerFolderId,
+          settings: LedgerDriveSettings(
+            accountEmail: ownerEmail,
+            folderId: ownerFolderId,
+          ),
+        );
+      } catch (e) {
+        AppLogger.i('⚠️ 기본 가계부 기준 계정 설정을 저장하지 못했습니다: $e');
+      }
+    }
+
+    _hasRestoredSelectedAccount = true;
+  }
+
   Future<void> _navigateToCategoryDetail({
     required String categoryName,
     required bool isExpense,
@@ -198,6 +243,7 @@ class _OverviewPageState extends State<OverviewPage> {
       MaterialPageRoute(
         builder: (context) => LedgerIngestionUI(
           googleUser: widget.googleUser,
+          accountEmail: _currentSelectedEmail,
         ),
       ),
     );
@@ -209,7 +255,7 @@ class _OverviewPageState extends State<OverviewPage> {
       MaterialPageRoute(
         builder: (context) => SettingUI(
           googleUser: widget.googleUser,
-          cacheManager: _cacheManager,
+          cacheManager: _sheetService.sheetSetupService.cacheManager,
           currentSelectedEmail: _currentSelectedEmail,
           onAccountChanged: (newEmail) {
             setState(() {
@@ -284,9 +330,19 @@ class _OverviewPageState extends State<OverviewPage> {
                         padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 8.0),
                         child: Align(
                           alignment: Alignment.centerLeft,
-                          child: Text(
-                            '안녕하세요, ${widget.googleUser.displayName ?? "사용자"}님!',
-                            style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                '안녕하세요, ${widget.googleUser.displayName ?? "사용자"}님!',
+                                style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+                              ),
+                              const SizedBox(height: 4),
+                              Text(
+                                '기준 계정: $_currentSelectedEmail',
+                                style: const TextStyle(fontSize: 12, color: Colors.grey),
+                              ),
+                            ],
                           ),
                         ),
                       ),
