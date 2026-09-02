@@ -69,7 +69,21 @@ class GoogleAuthWebService implements GoogleAuthService {
       throw Exception('Google 로그인 세션이 없습니다.');
     }
 
-    final bool authorized = await _googleSignIn.canAccessScopes(scopes);
+    // 웹에서는 새로고침 후 ID 로그인 세션과 OAuth scope 상태가
+    // canAccessScopes()에서 다르게 보일 수 있다.
+    // 실제 API 클라이언트 복원을 먼저 시도하고, 여기서 성공하면
+    // 별도의 권한 확인 결과와 관계없이 기존 승인 세션을 사용한다.
+    try {
+      final client = await _googleSignIn.authenticatedClient();
+      if (client != null) {
+        AppLogger.i('[AUTH] 기존 Google API 인증 클라이언트 복원 성공');
+        return client;
+      }
+    } catch (e) {
+      AppLogger.i('[AUTH] 기존 Google API 인증 클라이언트 복원 실패');
+    }
+
+    final authorized = await _googleSignIn.canAccessScopes(scopes);
     if (!authorized) {
       throw Exception('Google API 권한 승인이 필요합니다.');
     }
