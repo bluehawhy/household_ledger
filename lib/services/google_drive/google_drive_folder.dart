@@ -3,8 +3,7 @@ import 'package:household_ledger/services/utils/app_logger.dart';
 
 /// Google Drive 폴더 조회 / 생성 / 공유 관리 서비스
 class DriveFolderService {
-  static const _folderMimeType =
-      'application/vnd.google-apps.folder';
+  static const _folderMimeType = 'application/vnd.google-apps.folder';
 
   final drive.DriveApi _driveApi;
 
@@ -23,10 +22,7 @@ class DriveFolderService {
 
       return about.user?.emailAddress ?? 'me';
     } catch (e) {
-      AppLogger.e(
-        '계정 이메일 정보를 가져오는 데 실패했습니다: $e',
-      );
-
+      AppLogger.e('계정 이메일 정보를 가져오는 데 실패했습니다: $e');
       return 'me';
     }
   }
@@ -51,8 +47,7 @@ class DriveFolderService {
     }
 
     AppLogger.i(
-      '  └ 💡 기존 내 드라이브 폴더 사용 '
-      '(폴더 ID: ${folder!.id})',
+      '  └ 💡 기존 내 드라이브 폴더 사용 (폴더 ID: ${folder!.id})',
     );
 
     return folder.id;
@@ -60,9 +55,7 @@ class DriveFolderService {
 
   /// 신규 폴더 생성
   Future<String> createFolder(String folderName) async {
-    AppLogger.i(
-      "  └ ➕ '$folderName' 폴더가 없어 새로 생성합니다...",
-    );
+    AppLogger.i("  └ ➕ '$folderName' 폴더가 없어 새로 생성합니다...");
 
     final createdFolder = await _driveApi.files.create(
       drive.File()
@@ -73,45 +66,28 @@ class DriveFolderService {
     final folderId = createdFolder.id;
 
     if (folderId == null) {
-      throw Exception(
-        "폴더 '$folderName' 생성에는 성공했지만 ID를 받지 못했습니다.",
-      );
+      throw Exception("폴더 '$folderName' 생성에는 성공했지만 ID를 받지 못했습니다.");
     }
 
-    AppLogger.i(
-      '  └ ✅ 폴더 생성 성공 (ID: $folderId)',
-    );
-
+    AppLogger.i('  └ ✅ 폴더 생성 성공 (ID: $folderId)');
     return folderId;
   }
 
   /// 폴더 삭제
   Future<void> deleteFolder(String folderId) async {
     try {
-      AppLogger.i(
-        "  └ 🗑️ ID '$folderId' 폴더를 삭제합니다...",
-      );
-
+      AppLogger.i("  └ 🗑️ ID '$folderId' 폴더를 삭제합니다...");
       await _driveApi.files.delete(folderId);
-
-      AppLogger.i(
-        '  └ ✅ 폴더 삭제 성공 (ID: $folderId)',
-      );
+      AppLogger.i('  └ ✅ 폴더 삭제 성공 (ID: $folderId)');
     } catch (e) {
-      AppLogger.e(
-        '  └ ❌ 폴더 삭제 실패 (ID: $folderId): $e',
-      );
-
+      AppLogger.e('  └ ❌ 폴더 삭제 실패 (ID: $folderId): $e');
       rethrow;
     }
   }
 
   /// 폴더가 있으면 조회하고 없으면 생성
-  Future<String> getOrCreateFolderId(
-    String folderName,
-  ) async {
-    final existingFolderId =
-        await getFolderId(folderName);
+  Future<String> getOrCreateFolderId(String folderName) async {
+    final existingFolderId = await getFolderId(folderName);
 
     if (existingFolderId != null) {
       return existingFolderId;
@@ -135,40 +111,100 @@ class DriveFolderService {
   Future<Map<String, Map<String, String>>> getSharedFolders({
     required String folderName,
   }) async {
-    final sharedFolderMap =
-        <String, Map<String, String>>{};
+    final sharedFolderMap = <String, Map<String, String>>{};
+    final query = _buildSharedFolderQuery(folderName);
 
-    final result = await _driveApi.files.list(
-      q: _buildSharedFolderQuery(folderName),
-      $fields:
-          'files(id, name, owners/emailAddress, sharingUser/emailAddress)',
-      supportsAllDrives: true,
-      includeItemsFromAllDrives: true,
+    AppLogger.i("🔎 [공유 폴더 검색 시작] 폴더명: '$folderName'");
+    AppLogger.i('🔎 [공유 폴더 검색 Query] $query');
+    AppLogger.i(
+      '🔎 [공유 폴더 검색 옵션] supportsAllDrives=true, includeItemsFromAllDrives=true',
     );
 
-    for (final file in result.files ?? []) {
-      final folderId = file.id;
+    try {
+      final result = await _driveApi.files.list(
+        q: query,
+        $fields:
+            'files(id, name, mimeType, owners/emailAddress, sharingUser/emailAddress)',
+        supportsAllDrives: true,
+        includeItemsFromAllDrives: true,
+      );
 
-      final ownerEmail =
-          file.owners?.firstOrNull?.emailAddress ??
-          file.sharingUser?.emailAddress;
+      final files = result.files ?? <drive.File>[];
 
-      if (folderId == null || ownerEmail == null) {
-        continue;
+      AppLogger.i('🔎 [공유 폴더 검색 결과] 총 ${files.length}개');
+
+      if (files.isEmpty) {
+        AppLogger.w(
+          "⚠️ [공유 폴더 검색 결과 없음] '$folderName' 폴더를 찾지 못했습니다.",
+        );
+
+        // owner 조건을 제외한 진단 검색을 한 번 더 수행한다.
+        // 이 결과가 나오면 'not me in owners' 조건 또는 owner 메타데이터가
+        // 원인인지 바로 확인할 수 있다.
+        final diagnosticQuery = _buildSharedFolderDiagnosticQuery(folderName);
+        AppLogger.i('🔎 [공유 폴더 진단 Query] $diagnosticQuery');
+
+        final diagnosticResult = await _driveApi.files.list(
+          q: diagnosticQuery,
+          $fields:
+              'files(id, name, mimeType, owners/emailAddress, sharingUser/emailAddress)',
+          supportsAllDrives: true,
+          includeItemsFromAllDrives: true,
+        );
+
+        final diagnosticFiles = diagnosticResult.files ?? <drive.File>[];
+        AppLogger.i(
+          '🔎 [공유 폴더 진단 검색 결과] 총 ${diagnosticFiles.length}개',
+        );
+
+        for (final file in diagnosticFiles) {
+          AppLogger.i(
+            '   ├─ name=${file.name}, id=${file.id}, '
+            'mimeType=${file.mimeType}, '
+            'owners=${file.owners?.map((owner) => owner.emailAddress).toList()}, '
+            'sharingUser=${file.sharingUser?.emailAddress}',
+          );
+        }
+      } else {
+        for (final file in files) {
+          AppLogger.i(
+            '   ├─ 검색 파일: name=${file.name}, id=${file.id}, '
+            'owners=${file.owners?.map((owner) => owner.emailAddress).toList()}, '
+            'sharingUser=${file.sharingUser?.emailAddress}',
+          );
+        }
       }
 
-      final name = file.name ?? folderName;
+      for (final file in files) {
+        final folderId = file.id;
 
-      sharedFolderMap
-          .putIfAbsent(ownerEmail, () => {})
-          [name] = folderId;
+        final ownerEmail =
+            file.owners?.firstOrNull?.emailAddress ??
+            file.sharingUser?.emailAddress;
+
+        if (folderId == null || ownerEmail == null) {
+          AppLogger.w(
+            '   └ ⚠️ 공유 폴더 결과에서 ID 또는 소유자 이메일을 확인할 수 없습니다: '
+            'name=${file.name}, id=$folderId, '
+            'owners=${file.owners?.map((owner) => owner.emailAddress).toList()}, '
+            'sharingUser=${file.sharingUser?.emailAddress}',
+          );
+          continue;
+        }
+
+        final name = file.name ?? folderName;
+
+        sharedFolderMap
+            .putIfAbsent(ownerEmail, () => {})[name] = folderId;
+      }
+
+      AppLogger.i("📁 [공유 폴더 최종 결과] '$folderName': $sharedFolderMap");
+      return sharedFolderMap;
+    } catch (e, stackTrace) {
+      AppLogger.e("❌ [공유 폴더 검색 실패] '$folderName': $e");
+      AppLogger.e('❌ [공유 폴더 검색 StackTrace] $stackTrace');
+      rethrow;
     }
-
-    AppLogger.i(
-      "공유받은 '$folderName' 폴더 목록: $sharedFolderMap",
-    );
-
-    return sharedFolderMap;
   }
 
   // ===========================================================================
@@ -187,25 +223,19 @@ class DriveFolderService {
     bool sendNotificationEmail = true,
   }) async {
     try {
-      final existingPermission =
-          await _findPermissionByEmail(
+      final existingPermission = await _findPermissionByEmail(
         folderId: folderId,
         email: email,
       );
 
-      // 이미 권한 존재
       if (existingPermission != null) {
-        // 동일 권한
         if (existingPermission.role == role) {
           AppLogger.i(
-            'ℹ️ [$email] 사용자에게 이미 '
-            '동일한 폴더 권한($role)이 있습니다.',
+            'ℹ️ [$email] 사용자에게 이미 동일한 폴더 권한($role)이 있습니다.',
           );
-
           return existingPermission;
         }
 
-        // 권한 변경
         return _updatePermission(
           folderId: folderId,
           permissionId: existingPermission.id!,
@@ -214,19 +244,14 @@ class DriveFolderService {
         );
       }
 
-      // 새 권한 생성
       return _createPermission(
         folderId: folderId,
         email: email,
         role: role,
-        sendNotificationEmail:
-            sendNotificationEmail,
+        sendNotificationEmail: sendNotificationEmail,
       );
     } catch (e) {
-      AppLogger.e(
-        '❌ 폴더 공유 작업 실패: $e',
-      );
-
+      AppLogger.e('❌ 폴더 공유 작업 실패: $e');
       rethrow;
     }
   }
@@ -237,37 +262,26 @@ class DriveFolderService {
     required String email,
   }) async {
     try {
-      final permission =
-          await _findPermissionByEmail(
+      final permission = await _findPermissionByEmail(
         folderId: folderId,
         email: email,
       );
 
       if (permission?.id == null) {
         AppLogger.i(
-          'ℹ️ [$email] 사용자는 '
-          '기존 폴더 공유 대상에 존재하지 않습니다.',
+          'ℹ️ [$email] 사용자는 기존 폴더 공유 대상에 존재하지 않습니다.',
         );
-
         return false;
       }
 
-      await _driveApi.permissions.delete(
-        folderId,
-        permission!.id!,
-      );
+      await _driveApi.permissions.delete(folderId, permission!.id!);
 
       AppLogger.i(
-        '🗑️ [$email] 사용자의 '
-        '폴더 공유 권한을 성공적으로 제거했습니다.',
+        '🗑️ [$email] 사용자의 폴더 공유 권한을 성공적으로 제거했습니다.',
       );
-
       return true;
     } catch (e) {
-      AppLogger.e(
-        '❌ 폴더 공유 권한 제거 실패: $e',
-      );
-
+      AppLogger.e('❌ 폴더 공유 권한 제거 실패: $e');
       rethrow;
     }
   }
@@ -284,14 +298,11 @@ class DriveFolderService {
   ///     folderName: folderId
   ///   }
   /// }
-  Future<Map<String, Map<String, String>>>
-      getOrCreateFolder(
+  Future<Map<String, Map<String, String>>> getOrCreateFolder(
     String folderName,
   ) async {
     final userEmail = await getUserEmail();
-
-    final folderId =
-        await getOrCreateFolderId(folderName);
+    final folderId = await getOrCreateFolderId(folderName);
 
     return {
       userEmail: {
@@ -308,24 +319,23 @@ class DriveFolderService {
   ///     folderName: folderId
   ///   }
   /// }
-  Future<Map<String, Map<String, String>>>
-      getAllTargetFolders({
+  Future<Map<String, Map<String, String>>> getAllTargetFolders({
     required String folderName,
   }) async {
-    final resultMap =
-        <String, Map<String, String>>{};
+    AppLogger.i("📁 [전체 가계부 폴더 검색 시작] '$folderName'");
 
-    final myFolderMap =
-        await getOrCreateFolder(folderName);
+    final resultMap = <String, Map<String, String>>{};
 
-    final sharedFolderMap =
-        await getSharedFolders(
-      folderName: folderName,
-    );
+    final myFolderMap = await getOrCreateFolder(folderName);
+    AppLogger.i('📁 [내 드라이브 폴더 검색 결과] $myFolderMap');
+
+    final sharedFolderMap = await getSharedFolders(folderName: folderName);
+    AppLogger.i('📁 [공유 폴더 검색 결과] $sharedFolderMap');
 
     resultMap.addAll(myFolderMap);
     resultMap.addAll(sharedFolderMap);
 
+    AppLogger.i('📁 [전체 가계부 폴더 최종 결과] $resultMap');
     return resultMap;
   }
 
@@ -334,9 +344,7 @@ class DriveFolderService {
   // ===========================================================================
 
   /// 내 Drive Root의 폴더 검색 Query
-  String _buildMyFolderQuery(
-    String folderName,
-  ) {
+  String _buildMyFolderQuery(String folderName) {
     return "name = '$folderName' "
         "and mimeType = '$_folderMimeType' "
         'and trashed = false '
@@ -344,35 +352,34 @@ class DriveFolderService {
   }
 
   /// 공유받은 폴더 검색 Query
-  String _buildSharedFolderQuery(
-    String folderName,
-  ) {
+  String _buildSharedFolderQuery(String folderName) {
     return "name = '$folderName' "
         "and mimeType = '$_folderMimeType' "
         'and trashed = false '
         "and not 'me' in owners";
   }
 
+  /// 공유 폴더 검색 조건을 제외한 진단용 Query
+  String _buildSharedFolderDiagnosticQuery(String folderName) {
+    return "name = '$folderName' "
+        "and mimeType = '$_folderMimeType' "
+        'and trashed = false';
+  }
+
   /// 이메일로 기존 Permission 조회
-  Future<drive.Permission?>
-      _findPermissionByEmail({
+  Future<drive.Permission?> _findPermissionByEmail({
     required String folderId,
     required String email,
   }) async {
-    final permissionsList =
-        await _driveApi.permissions.list(
+    final permissionsList = await _driveApi.permissions.list(
       folderId,
-      $fields:
-          'permissions(id, type, role, emailAddress)',
+      $fields: 'permissions(id, type, role, emailAddress)',
     );
 
     final targetEmail = email.toLowerCase();
 
-    for (final permission
-        in permissionsList.permissions ?? []) {
-      if (permission.emailAddress
-              ?.toLowerCase() ==
-          targetEmail) {
+    for (final permission in permissionsList.permissions ?? []) {
+      if (permission.emailAddress?.toLowerCase() == targetEmail) {
         return permission;
       }
     }
@@ -388,20 +395,17 @@ class DriveFolderService {
     required String role,
   }) async {
     AppLogger.i(
-      '🔄 [$email] 기존 폴더 권한을 '
-      '$role 권한으로 업데이트합니다.',
+      '🔄 [$email] 기존 폴더 권한을 $role 권한으로 업데이트합니다.',
     );
 
-    final result =
-        await _driveApi.permissions.update(
+    final result = await _driveApi.permissions.update(
       drive.Permission()..role = role,
       folderId,
       permissionId,
     );
 
     AppLogger.i(
-      '✅ 폴더 권한 업데이트 성공: '
-      '${result.id} ($email -> $role)',
+      '✅ 폴더 권한 업데이트 성공: ${result.id} ($email -> $role)',
     );
 
     return result;
@@ -418,20 +422,17 @@ class DriveFolderService {
       '➕ [$email] 새 폴더 공유 권한($role)을 생성합니다.',
     );
 
-    final result =
-        await _driveApi.permissions.create(
+    final result = await _driveApi.permissions.create(
       drive.Permission()
         ..type = 'user'
         ..role = role
         ..emailAddress = email,
       folderId,
-      sendNotificationEmail:
-          sendNotificationEmail,
+      sendNotificationEmail: sendNotificationEmail,
     );
 
     AppLogger.i(
-      '✅ 폴더 공유 성공: '
-      '${result.id} ($email -> $role)',
+      '✅ 폴더 공유 성공: ${result.id} ($email -> $role)',
     );
 
     return result;
