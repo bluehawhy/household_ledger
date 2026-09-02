@@ -1,6 +1,7 @@
 // google_auth_web.dart
 import 'package:google_sign_in/google_sign_in.dart';
 import 'package:googleapis_auth/auth_io.dart';
+import 'package:extension_google_sign_in_as_googleapis_auth/extension_google_sign_in_as_googleapis_auth.dart';
 import 'google_auth_stub.dart';
 
 GoogleAuthService getGoogleAuthService(List<String> scopes) {
@@ -61,43 +62,15 @@ class GoogleAuthWebService implements GoogleAuthService {
       throw Exception('Google 로그인 세션이 없습니다.');
     }
 
-    // 이미 승인된 scope라면 사용자 interaction 없이 기존 authorization을 복원한다.
-    final authorization = await account.authorizationClient.authorizationForScopes(scopes);
+    // 새로고침 후에도 기존에 승인된 OAuth grant가 있으면
+    // authorizationForScopes()가 사용자 interaction 없이 access token을 복원한다.
+    final authorization =
+        await account.authorizationClient.authorizationForScopes(scopes);
 
     if (authorization == null || authorization.accessToken.isEmpty) {
       throw Exception('Google API 권한 승인이 필요합니다.');
     }
 
-    final headers = <String, String>{
-      'Authorization': 'Bearer ${authorization.accessToken}',
-    };
-
-    return AuthClient(
-      _GoogleAuthHttpClient(headers),
-      credentials: AccessCredentials(
-        AccessToken(
-          'Bearer',
-          authorization.accessToken,
-          DateTime.now().toUtc().add(const Duration(hours: 1)),
-        ),
-        null,
-        scopes,
-      ),
-    );
+    return authorization.authClient(scopes: scopes);
   }
-}
-
-class _GoogleAuthHttpClient extends AuthClient {
-  final Map<String, String> _headers;
-
-  _GoogleAuthHttpClient(this._headers);
-
-  @override
-  Future<StreamedResponse> send(BaseRequest request) async {
-    request.headers.addAll(_headers);
-    return request.send();
-  }
-
-  @override
-  void close() {}
 }
