@@ -15,7 +15,6 @@ class _MainUIState extends State<MainUI> {
   bool _isLoading = true;
   bool _authorizationRequired = false;
   String? _errorMessage;
-  dynamic _account;
 
   final GoogleAuthManager _authManager = GoogleAuthManager();
 
@@ -26,8 +25,8 @@ class _MainUIState extends State<MainUI> {
     _checkSignInState();
   }
 
-  /// 앱 시작/새로고침 시 기존 Google 로그인 세션을 복원하고
-  /// Drive/Sheets API 사용 권한까지 확인한다.
+  /// 앱 시작/새로고침 시 기존 Google 로그인 세션과
+  /// Drive/Sheets API 인증 상태를 함께 확인한다.
   Future<void> _checkSignInState() async {
     AppLogger.i('[AUTH] _checkSignInState() 시작');
 
@@ -56,7 +55,6 @@ class _MainUIState extends State<MainUI> {
         return;
       }
 
-      _account = account;
       AppLogger.i('[AUTH] 로그인 계정 확인 성공');
       AppLogger.i('[AUTH] 계정 이메일: ${account.email}');
 
@@ -64,7 +62,7 @@ class _MainUIState extends State<MainUI> {
       await prefs.setBool('is_logged_in', true);
       AppLogger.i('[AUTH] SharedPreferences is_logged_in=true 저장 완료');
 
-      // 로그인 세션뿐 아니라 Drive/Sheets API 인증까지 MainUI에서 확인한다.
+      // 로그인과 별도로 필요한 Drive/Sheets API 인증도 MainUI에서 확인한다.
       try {
         AppLogger.i('[AUTH] 로그인 복원 후 Google API 인증 확인 시작');
         await _authManager.getClient();
@@ -76,16 +74,25 @@ class _MainUIState extends State<MainUI> {
       } catch (e) {
         if (_isAuthorizationError(e)) {
           AppLogger.i('[AUTH] 로그인은 복원되었지만 Google API 권한이 필요함');
-          _authorizationRequired = true;
-          _errorMessage = 'Google Drive와 Sheets 접근 권한이 필요합니다.';
-        } else {
-          rethrow;
+          if (mounted) {
+            setState(() {
+              _authorizationRequired = true;
+              _errorMessage = 'Google Drive와 Sheets 접근 권한이 필요합니다.';
+            });
+          }
+          return;
         }
+        rethrow;
       }
     } catch (e, stackTrace) {
       AppLogger.i('[AUTH] 자동 로그인/권한 확인 중 오류 발생: $e');
       AppLogger.i('[AUTH] StackTrace: $stackTrace');
-      _errorMessage = 'Google 로그인 상태를 확인하지 못했습니다.\n다시 시도해 주세요.';
+      if (mounted) {
+        setState(() {
+          _authorizationRequired = false;
+          _errorMessage = 'Google 로그인 상태를 확인하지 못했습니다.\n다시 시도해 주세요.';
+        });
+      }
     } finally {
       if (mounted) {
         AppLogger.i('[AUTH] _checkSignInState() 종료 → loading=false');
@@ -101,7 +108,7 @@ class _MainUIState extends State<MainUI> {
         message.contains('로그인 세션');
   }
 
-  /// 로그인 또는 로그인 후 Drive/Sheets 권한까지 한 번에 처리한다.
+  /// 로그인과 Drive/Sheets API 권한 처리를 사용자 입장에서는 한 번의 흐름으로 처리한다.
   Future<void> _handleSignIn() async {
     if (_isLoading) return;
 
@@ -132,7 +139,7 @@ class _MainUIState extends State<MainUI> {
         throw Exception('Google API 권한 승인이 취소되었습니다.');
       }
 
-      // 권한 승인 후 실제 API 클라이언트 생성까지 다시 확인한다.
+      // 권한 승인 후 실제 API 클라이언트 생성까지 확인한다.
       await _authManager.getClient();
       AppLogger.i('[AUTH] 권한 승인 후 Google API 인증 성공');
     }
@@ -153,14 +160,6 @@ class _MainUIState extends State<MainUI> {
     AppLogger.i('[AUTH] 로그인/권한 처리 성공 → is_logged_in=true');
 
     _navigateToOverview(account);
-
-    if (mounted) {
-      setState(() {
-        _authorizationRequired = false;
-        _errorMessage = null;
-        _isLoading = false;
-      });
-    }
   }
 
   void _navigateToOverview(dynamic account) {
@@ -206,7 +205,7 @@ class _MainUIState extends State<MainUI> {
                         ElevatedButton.icon(
                           onPressed: _handleSignIn,
                           icon: const Icon(Icons.verified_user_outlined),
-                          label: const Text('Google 권한 연결'),
+                          label: const Text('Google 로그인 및 권한 연결'),
                         ),
                       ],
                     ),
