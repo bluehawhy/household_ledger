@@ -54,17 +54,37 @@ class GoogleAuthWebService implements GoogleAuthService {
     }
   }
 
-  /// 새로고침 후에도 이미 승인된 Google API 권한을 우선 복원한다.
+  /// 새로고침 후 기존 Google API 인증 상태를 최대한 자동으로 복원한다.
   ///
-  /// Web에서는 Authentication과 OAuth Authorization이 분리되어 있으므로
-  /// signInSilently()가 성공해도 scope 권한이 즉시 복원되지 않을 수 있다.
-  /// 이미 브라우저/Google 세션에 권한이 존재한다면 requestScopes() 없이
-  /// authenticatedClient()를 다시 얻을 수 있는지 먼저 확인한다.
+  /// 1. 현재 Google 계정의 API scope 승인 상태를 확인한다.
+  /// 2. 승인 상태가 확인되면 기존 OAuth client/token 획득을 시도한다.
+  /// 3. Web의 새 browsing session에서는 canAccessScopes()가 false일 수 있으므로,
+  ///    false여도 authenticatedClient()를 한 번 더 시도한다.
+  /// 4. 자동 획득이 실패하면 호출자가 사용자 동작으로 requestScopes()를 수행한다.
+  ///
+  /// requestScopes()는 브라우저 사용자 제스처가 필요할 수 있으므로 여기서는 호출하지 않는다.
   Future<AuthClient?> restoreAuthorizedClient() async {
     final account = _googleSignIn.currentUser;
-    if (account == null) return null;
+    if (account == null) {
+      AppLogger.i('[AUTH] Web API 자동 복원: Google 계정 없음');
+      return null;
+    }
 
     try {
+      final authorized = await canAccessScopes();
+      AppLogger.i('[AUTH] Web API 기존 scope 승인 상태 확인: $authorized');
+
+      if (authorized) {
+        final client = await _googleSignIn.authenticatedClient();
+        if (client != null) {
+          AppLogger.i('[AUTH] Web Google API 인증 클라이언트 자동 복원 성공');
+          return client;
+        }
+      }
+
+      // 새 browsing session에서는 canAccessScopes()가 false여도
+      // Google이 기존 승인 상태를 바탕으로 OAuth client/token을 제공할 수 있다.
+      AppLogger.i('[AUTH] scope 상태와 관계없이 기존 OAuth client/token 자동 획득 재시도');
       final client = await _googleSignIn.authenticatedClient();
       if (client != null) {
         AppLogger.i('[AUTH] Web Google API 인증 클라이언트 자동 복원 성공');
