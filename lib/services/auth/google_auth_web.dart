@@ -27,13 +27,14 @@ class GoogleAuthWebService implements GoogleAuthService {
   Stream<GoogleSignInAccount?> get onCurrentUserChanged =>
       _googleSignIn.onCurrentUserChanged;
 
-  /// 6.x 웹에서는 Google SDK가 렌더링한 버튼을 통해 interactive sign-in을 시작한다.
-  /// MainUI에서는 이 메서드를 직접 호출하지 않고 web renderButton의
-  /// onCurrentUserChanged 이벤트를 통해 로그인 완료를 감지한다.
+  /// 6.x 웹에서는 Google Identity Services가 렌더링한 버튼으로
+  /// interactive sign-in을 시작한다.
   Future<GoogleSignInAccount?> signIn() async {
     return await _googleSignIn.signIn();
   }
 
+  /// 웹의 인증(Authentication) 세션만 복원한다.
+  /// Drive/Sheets OAuth 권한(Authorization)은 별도로 확인한다.
   Future<GoogleSignInAccount?> signInSilently() async {
     try {
       return await _googleSignIn.signInSilently();
@@ -43,15 +44,18 @@ class GoogleAuthWebService implements GoogleAuthService {
     }
   }
 
+  /// 현재 인증된 계정이 요청된 Drive/Sheets scope를 사용할 수 있는지 확인한다.
   Future<bool> canAccessScopes() async {
     final account = _googleSignIn.currentUser;
     if (account == null) return false;
     return await _googleSignIn.canAccessScopes(scopes);
   }
 
+  /// Drive/Sheets OAuth 권한을 사용자 동작으로 요청한다.
   Future<bool> requestAuthorization() async {
     final account = _googleSignIn.currentUser;
     if (account == null) return false;
+
     try {
       return await _googleSignIn.requestScopes(scopes);
     } catch (e) {
@@ -60,37 +64,28 @@ class GoogleAuthWebService implements GoogleAuthService {
     }
   }
 
+  /// 이미 인증(Authentication) + 권한(Authorization)이 완료된 상태에서
+  /// googleapis용 AuthClient를 생성한다.
+  ///
+  /// 이 메서드에서는 로그인/권한 요청을 수행하지 않는다.
+  /// 호출 전에 canAccessScopes() 또는 requestAuthorization()으로
+  /// API 권한 상태를 확인해야 한다.
   @override
   Future<AuthClient> getAuthenticatedClient() async {
-    GoogleSignInAccount? account = _googleSignIn.currentUser;
-    account ??= await signInSilently();
+    final account = _googleSignIn.currentUser;
 
     if (account == null) {
       throw Exception('Google 로그인 세션이 없습니다.');
     }
 
-    // 웹에서는 새로고침 후 ID 로그인 세션과 OAuth scope 상태가
-    // canAccessScopes()에서 다르게 보일 수 있다.
-    // 실제 API 클라이언트 복원을 먼저 시도하고, 여기서 성공하면
-    // 별도의 권한 확인 결과와 관계없이 기존 승인 세션을 사용한다.
     try {
       final client = await _googleSignIn.authenticatedClient();
       if (client != null) {
-        AppLogger.i('[AUTH] 기존 Google API 인증 클라이언트 복원 성공');
+        AppLogger.i('[AUTH] Google API 인증 클라이언트 생성 성공');
         return client;
       }
     } catch (e) {
-      AppLogger.i('[AUTH] 기존 Google API 인증 클라이언트 복원 실패');
-    }
-
-    final authorized = await _googleSignIn.canAccessScopes(scopes);
-    if (!authorized) {
-      throw Exception('Google API 권한 승인이 필요합니다.');
-    }
-
-    final client = await _googleSignIn.authenticatedClient();
-    if (client != null) {
-      return client;
+      AppLogger.i('[AUTH] Google API 인증 클라이언트 생성 실패: $e');
     }
 
     throw Exception('Google API 인증 클라이언트를 생성하지 못했습니다.');
