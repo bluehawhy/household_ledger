@@ -113,8 +113,9 @@ class _MainUIState extends State<MainUI> {
     if (!mounted) return;
 
     try {
-      // 1. 새로고침 후 기존 Google API client가 살아 있다면 바로 복원한다.
-      // requestScopes()는 사용자 동작이 필요할 수 있으므로 자동 복구 단계에서는 호출하지 않는다.
+      // 새로고침 후 기존 Google API client가 살아 있다면 바로 복원한다.
+      // Web에서는 canAccessScopes()가 새 browsing session에서 false를 반환할 수 있으므로
+      // 이를 자동 복원의 선행 조건으로 사용하지 않는다.
       final restoredClient = await _restoreWebClientIfAvailable();
       if (restoredClient) {
         AppLogger.i('[AUTH] 새로고침 후 Google API client 자동 복원 성공');
@@ -124,28 +125,15 @@ class _MainUIState extends State<MainUI> {
         return;
       }
 
-      // 2. client가 복원되지 않았더라도 현재 scope 권한이 살아있는지 확인한다.
-      final authorized = await _authManager.canAccessScopes();
-      AppLogger.i('[AUTH] Google API 권한 상태: $authorized');
-
-      if (!authorized) {
-        AppLogger.i('[AUTH] Google API 권한 필요 → 권한 연결 버튼 표시');
-        if (mounted) {
-          setState(() {
-            _authorizationRequired = true;
-            _errorMessage = 'Google Drive와 Sheets 접근 권한이 필요합니다.';
-            _isLoading = false;
-          });
-        }
-        return;
+      // 자동 복원이 실패한 경우에만 사용자에게 API scope 권한 연결을 요청한다.
+      AppLogger.i('[AUTH] Google API client 자동 복원 실패 → 권한 연결 버튼 표시');
+      if (mounted) {
+        setState(() {
+          _authorizationRequired = true;
+          _errorMessage = 'Google Drive와 Sheets 접근 권한이 필요합니다.';
+          _isLoading = false;
+        });
       }
-
-      await _authManager.getClient();
-      AppLogger.i('[AUTH] Google API 권한 및 인증 클라이언트 확인 성공');
-      await _saveLoggedInState(true);
-
-      if (!mounted) return;
-      _navigateToOverview(account);
     } catch (e, stackTrace) {
       AppLogger.i('[AUTH] Google API 권한 확인 오류: $e');
       AppLogger.i('[AUTH] Google API 권한 확인 StackTrace: $stackTrace');
@@ -162,8 +150,7 @@ class _MainUIState extends State<MainUI> {
   Future<bool> _restoreWebClientIfAvailable() async {
     try {
       final service = _authManager;
-      final result = await (service as dynamic)
-          .restoreAuthorizedClient();
+      final result = await (service as dynamic).restoreAuthorizedClient();
       return result != null;
     } catch (e) {
       AppLogger.i('[AUTH] 웹 Google API client 자동 복원 단계 생략: $e');
