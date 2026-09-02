@@ -2,6 +2,7 @@
 import 'package:google_sign_in/google_sign_in.dart';
 import 'package:googleapis_auth/auth_io.dart';
 import 'package:extension_google_sign_in_as_googleapis_auth/extension_google_sign_in_as_googleapis_auth.dart';
+import 'package:household_ledger/services/utils/app_logger.dart';
 import 'google_auth_stub.dart';
 
 GoogleAuthService getGoogleAuthService(List<String> scopes) {
@@ -37,7 +38,7 @@ class GoogleAuthWebService implements GoogleAuthService {
     try {
       return await _googleSignIn.signInSilently();
     } catch (e) {
-      print('❌ [Web Auth Error] 자동 로그인 복원 실패: $e');
+      AppLogger.i('❌ [Web Auth Error] 자동 로그인 복원 실패: $e');
       return null;
     }
   }
@@ -54,7 +55,7 @@ class GoogleAuthWebService implements GoogleAuthService {
     try {
       return await _googleSignIn.requestScopes(scopes);
     } catch (e) {
-      print('❌ [Web Auth Error] Google API 권한 요청 실패: $e');
+      AppLogger.i('❌ [Web Auth Error] Google API 권한 요청 실패: $e');
       return false;
     }
   }
