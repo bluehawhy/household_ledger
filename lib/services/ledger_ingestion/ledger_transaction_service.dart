@@ -14,14 +14,17 @@ class LedgerDataService {
   final LedgerReadService _readService;
   final LedgerWriteService _writeService;
 
-  LedgerDataService({LedgerSpreadsheetService? sheetSetupService})
-      : sheetSetupService =
-            sheetSetupService ?? LedgerSpreadsheetService(),
-        _readService = LedgerReadService(
-          sheetSetupService: sheetSetupService ?? LedgerSpreadsheetService(),
+  factory LedgerDataService({LedgerSpreadsheetService? sheetSetupService}) {
+    final sharedService = sheetSetupService ?? LedgerSpreadsheetService();
+    return LedgerDataService._(sharedService);
+  }
+
+  LedgerDataService._(this.sheetSetupService)
+      : _readService = LedgerReadService(
+          sheetSetupService: sheetSetupService,
         ),
         _writeService = LedgerWriteService(
-          sheetSetupService: sheetSetupService ?? LedgerSpreadsheetService(),
+          sheetSetupService: sheetSetupService,
         );
 
   CategoryMapper get categoryMapper => sheetSetupService.categoryMapper;
