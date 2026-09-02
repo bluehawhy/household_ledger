@@ -113,10 +113,18 @@ class _MainUIState extends State<MainUI> {
     if (!mounted) return;
 
     try {
-      // 웹에서는 로그인 세션과 API scope 권한을 분리해서 확인한다.
-      // getClient()를 먼저 호출하지 않는다. AuthClient는 scope 권한이
-      // 확인된 뒤에만 생성해야 하며, 새로고침 후에는 사용자 동작으로
-      // requestScopes()를 다시 수행해야 할 수 있다.
+      // 1. 새로고침 후 기존 Google API client가 살아 있다면 바로 복원한다.
+      // requestScopes()는 사용자 동작이 필요할 수 있으므로 자동 복구 단계에서는 호출하지 않는다.
+      final restoredClient = await _restoreWebClientIfAvailable();
+      if (restoredClient) {
+        AppLogger.i('[AUTH] 새로고침 후 Google API client 자동 복원 성공');
+        await _saveLoggedInState(true);
+        if (!mounted) return;
+        _navigateToOverview(account);
+        return;
+      }
+
+      // 2. client가 복원되지 않았더라도 현재 scope 권한이 살아있는지 확인한다.
       final authorized = await _authManager.canAccessScopes();
       AppLogger.i('[AUTH] Google API 권한 상태: $authorized');
 
@@ -132,7 +140,6 @@ class _MainUIState extends State<MainUI> {
         return;
       }
 
-      // 권한이 확인된 경우에만 실제 API client를 생성해 최종 검증한다.
       await _authManager.getClient();
       AppLogger.i('[AUTH] Google API 권한 및 인증 클라이언트 확인 성공');
       await _saveLoggedInState(true);
@@ -149,6 +156,18 @@ class _MainUIState extends State<MainUI> {
           _isLoading = false;
         });
       }
+    }
+  }
+
+  Future<bool> _restoreWebClientIfAvailable() async {
+    try {
+      final service = _authManager;
+      final result = await (service as dynamic)
+          .restoreAuthorizedClient();
+      return result != null;
+    } catch (e) {
+      AppLogger.i('[AUTH] 웹 Google API client 자동 복원 단계 생략: $e');
+      return false;
     }
   }
 
