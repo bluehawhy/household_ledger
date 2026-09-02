@@ -65,7 +65,6 @@ class _MainUIState extends State<MainUI> {
     AppLogger.i('[AUTH] _checkSignInState() 시작');
 
     try {
-      AppLogger.i('[AUTH] currentUser 확인 시작');
       var account = _authManager.currentUser;
       AppLogger.i(
         '[AUTH] currentUser 결과: ${account == null ? 'null (계정 없음)' : '계정 있음'}',
@@ -80,7 +79,6 @@ class _MainUIState extends State<MainUI> {
       }
 
       if (account != null && mounted) {
-        AppLogger.i('[AUTH] 로그인 계정 확인 성공 → API 세션 복원 확인');
         await _handleAuthenticatedAccount(account);
       } else {
         AppLogger.i('[AUTH] 복원할 Google 세션 없음 → 로그인 화면 표시');
@@ -97,7 +95,6 @@ class _MainUIState extends State<MainUI> {
     } finally {
       _authFlowInProgress = false;
       if (mounted) {
-        AppLogger.i('[AUTH] _checkSignInState() 종료 → loading=false');
         setState(() => _isLoading = false);
       }
     }
@@ -109,7 +106,6 @@ class _MainUIState extends State<MainUI> {
     AppLogger.i('[AUTH] 로그인 계정 확인 성공');
     AppLogger.i('[AUTH] 계정 이메일: ${account.email}');
     await _saveLoggedInState(true);
-
     await _checkApiAuthorization(account);
   }
 
@@ -117,26 +113,15 @@ class _MainUIState extends State<MainUI> {
     if (!mounted) return;
 
     try {
-      // canAccessScopes()만 확인하면 웹 새로고침 후 OAuth scope 상태가
-      // 복원되지 않은 것처럼 보여 매번 권한 요청 화면으로 갈 수 있다.
-      // 실제 Google API 인증 클라이언트 복원을 먼저 시도한다.
-      try {
-        await _authManager.getClient();
-        AppLogger.i('[AUTH] Google API 인증 클라이언트 복원 성공 → 권한 요청 생략');
-        await _saveLoggedInState(true);
-
-        if (!mounted) return;
-        _navigateToOverview(account);
-        return;
-      } catch (clientError) {
-        AppLogger.i('[AUTH] 기존 Google API 클라이언트 복원 실패 → scope 권한 확인: $clientError');
-      }
-
+      // 웹에서는 로그인 세션과 API scope 권한을 분리해서 확인한다.
+      // getClient()를 먼저 호출하지 않는다. AuthClient는 scope 권한이
+      // 확인된 뒤에만 생성해야 하며, 새로고침 후에는 사용자 동작으로
+      // requestScopes()를 다시 수행해야 할 수 있다.
       final authorized = await _authManager.canAccessScopes();
       AppLogger.i('[AUTH] Google API 권한 상태: $authorized');
 
       if (!authorized) {
-        AppLogger.i('[AUTH] Google API 권한 필요 → MainUI에서 권한 연결 대기');
+        AppLogger.i('[AUTH] Google API 권한 필요 → 권한 연결 버튼 표시');
         if (mounted) {
           setState(() {
             _authorizationRequired = true;
@@ -147,7 +132,9 @@ class _MainUIState extends State<MainUI> {
         return;
       }
 
-      AppLogger.i('[AUTH] 로그인 및 Google API 권한 확인 성공 → OverviewPage 이동');
+      // 권한이 확인된 경우에만 실제 API client를 생성해 최종 검증한다.
+      await _authManager.getClient();
+      AppLogger.i('[AUTH] Google API 권한 및 인증 클라이언트 확인 성공');
       await _saveLoggedInState(true);
 
       if (!mounted) return;
@@ -187,7 +174,6 @@ class _MainUIState extends State<MainUI> {
         throw Exception('Google 로그인에 실패했거나 사용자가 취소했습니다.');
       }
 
-      AppLogger.i('[AUTH] Google 로그인 성공 → API 권한 확인');
       await _handleAuthenticatedAccount(account);
     } catch (e, stackTrace) {
       AppLogger.i('[AUTH] Google 로그인 에러: $e');
