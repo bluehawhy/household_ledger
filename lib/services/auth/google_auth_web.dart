@@ -54,6 +54,29 @@ class GoogleAuthWebService implements GoogleAuthService {
     }
   }
 
+  /// 새로고침 후에도 이미 승인된 Google API 권한을 우선 복원한다.
+  ///
+  /// Web에서는 Authentication과 OAuth Authorization이 분리되어 있으므로
+  /// signInSilently()가 성공해도 scope 권한이 즉시 복원되지 않을 수 있다.
+  /// 이미 브라우저/Google 세션에 권한이 존재한다면 requestScopes() 없이
+  /// authenticatedClient()를 다시 얻을 수 있는지 먼저 확인한다.
+  Future<AuthClient?> restoreAuthorizedClient() async {
+    final account = _googleSignIn.currentUser;
+    if (account == null) return null;
+
+    try {
+      final client = await _googleSignIn.authenticatedClient();
+      if (client != null) {
+        AppLogger.i('[AUTH] Web Google API 인증 클라이언트 자동 복원 성공');
+        return client;
+      }
+    } catch (e) {
+      AppLogger.i('[AUTH] Web Google API 인증 클라이언트 자동 복원 실패: $e');
+    }
+
+    return null;
+  }
+
   Future<bool> requestAuthorization() async {
     final account = _googleSignIn.currentUser;
     if (account == null) return false;
@@ -75,19 +98,15 @@ class GoogleAuthWebService implements GoogleAuthService {
       throw Exception('Google 로그인 세션이 없습니다.');
     }
 
-    if (!await canAccessScopes()) {
+    final authorized = await canAccessScopes();
+    if (!authorized) {
       throw Exception('Google API 권한 승인이 필요합니다.');
     }
 
-    try {
-      final client = await _googleSignIn.authenticatedClient();
-      if (client != null) {
-        AppLogger.i('[AUTH] Google API 인증 클라이언트 생성 성공');
-        return client;
-      }
-    } catch (e) {
-      AppLogger.i('[AUTH] Google API 인증 클라이언트 생성 실패: $e');
-      rethrow;
+    final client = await _googleSignIn.authenticatedClient();
+    if (client != null) {
+      AppLogger.i('[AUTH] Google API 인증 클라이언트 생성 성공');
+      return client;
     }
 
     throw Exception('Google API 인증 클라이언트를 생성하지 못했습니다.');
