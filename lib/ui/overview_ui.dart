@@ -37,7 +37,6 @@ class _OverviewPageState extends State<OverviewPage> {
   final NumberFormat _currencyFormatter = NumberFormat('#,###');
 
   bool _isLoading = true;
-  bool _authorizationRequired = false;
   String? _errorMessage;
 
   List<LedgerItem> _rawExpenses = [];
@@ -63,7 +62,8 @@ class _OverviewPageState extends State<OverviewPage> {
     super.dispose();
   }
 
-  /// 구글 시트에서 이번 달 통합 데이터 불러오기 및 가공
+  /// MainUI에서 Google 로그인 및 API 권한 처리가 완료된 상태를 전제로
+  /// 구글 시트에서 이번 달 통합 데이터를 불러오고 가공한다.
   Future<void> _loadMonthlyData() async {
     if (!mounted) return;
 
@@ -133,63 +133,16 @@ class _OverviewPageState extends State<OverviewPage> {
           _expenseMethods = expMethodMap;
           _totalIncome = totalInc;
           _incomeCategories = incCatMap;
-          _authorizationRequired = false;
           _isLoading = false;
         });
       }
-    } catch (e) {
-      AppLogger.i('데이터 조회 에러: $e');
-
-      final bool isAuthorizationError =
-          e.toString().contains('Google API 권한') ||
-          e.toString().contains('Google API 인증') ||
-          e.toString().contains('로그인 세션');
-
-      if (mounted) {
-        setState(() {
-          _authorizationRequired = isAuthorizationError;
-          _errorMessage = isAuthorizationError
-              ? 'Google Drive와 Sheets 접근 권한이 필요합니다.\n아래 버튼을 눌러 권한을 연결해 주세요.'
-              : '가계부 데이터를 불러오지 못했습니다.\n잠시 후 다시 시도해 주세요.';
-          _isLoading = false;
-        });
-      }
-    }
-  }
-
-  /// 웹에서 Google Drive/Sheets 권한을 사용자 클릭으로 다시 요청한다.
-  Future<void> _authorizeGoogleApis() async {
-    if (_isLoading) return;
-
-    AppLogger.i('[AUTH] Google API 권한 재요청 시작');
-    setState(() {
-      _isLoading = true;
-      _errorMessage = null;
-    });
-
-    try {
-      final bool authorized = await _authManager.authorizeScopes();
-      AppLogger.i('[AUTH] Google API 권한 재요청 결과: $authorized');
-
-      if (!authorized) {
-        if (!mounted) return;
-        setState(() {
-          _authorizationRequired = true;
-          _errorMessage = 'Google API 권한 승인이 취소되었습니다.';
-          _isLoading = false;
-        });
-        return;
-      }
-
-      await _loadMonthlyData();
     } catch (e, stackTrace) {
-      AppLogger.i('[AUTH] Google API 권한 요청 오류: $e');
-      AppLogger.i('[AUTH] Google API 권한 요청 StackTrace: $stackTrace');
+      AppLogger.i('데이터 조회 에러: $e');
+      AppLogger.i('데이터 조회 StackTrace: $stackTrace');
 
       if (mounted) {
         setState(() {
-          _authorizationRequired = true;
-          _errorMessage = 'Google API 권한을 연결하지 못했습니다.\n다시 시도해 주세요.';
+          _errorMessage = '가계부 데이터를 불러오지 못했습니다.\n잠시 후 다시 시도해 주세요.';
           _isLoading = false;
         });
       }
@@ -307,27 +260,18 @@ class _OverviewPageState extends State<OverviewPage> {
                     child: Column(
                       mainAxisAlignment: MainAxisAlignment.center,
                       children: [
-                        Icon(
-                          _authorizationRequired
-                              ? Icons.lock_outline
-                              : Icons.error_outline,
-                          color: _authorizationRequired ? Colors.orange : Colors.red,
+                        const Icon(
+                          Icons.error_outline,
+                          color: Colors.red,
                           size: 48,
                         ),
                         const SizedBox(height: 16),
                         Text(_errorMessage!, textAlign: TextAlign.center),
                         const SizedBox(height: 16),
-                        if (_authorizationRequired)
-                          ElevatedButton.icon(
-                            onPressed: _authorizeGoogleApis,
-                            icon: const Icon(Icons.verified_user_outlined),
-                            label: const Text('Google 권한 연결'),
-                          )
-                        else
-                          ElevatedButton(
-                            onPressed: _loadMonthlyData,
-                            child: const Text('다시 시도'),
-                          ),
+                        ElevatedButton(
+                          onPressed: _loadMonthlyData,
+                          child: const Text('다시 시도'),
+                        ),
                       ],
                     ),
                   ),
