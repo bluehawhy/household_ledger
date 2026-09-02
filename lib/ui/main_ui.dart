@@ -29,9 +29,6 @@ class _MainUIState extends State<MainUI> {
     super.initState();
     AppLogger.i('[AUTH] MainUI initState()');
 
-    // 로그인 결과는 계정 변경 이벤트로도 처리한다.
-    // 단, 초기 세션 복원 중에는 _checkSignInState()가 담당하므로
-    // 같은 계정을 중복 처리하지 않는다.
     _accountSubscription = _authManager.onCurrentUserChanged.listen(
       _handleAccountChanged,
       onError: (error, stackTrace) {
@@ -58,11 +55,6 @@ class _MainUIState extends State<MainUI> {
     }
   }
 
-  /// 앱 시작 시 기존 Google 로그인 세션을 먼저 복원한다.
-  ///
-  /// 이미 로그인된 계정이 있으면 로그인 화면을 잠깐 보여주는 대신
-  /// 세션 복원 → 권한 확인 → OverviewPage 이동까지 완료한 뒤 화면을 전환한다.
-  /// 기존 세션이 없을 때만 로그인 버튼을 표시한다.
   Future<void> _checkSignInState() async {
     if (_authFlowInProgress) {
       AppLogger.i('[AUTH] 다른 인증 흐름이 진행 중 → 초기 로그인 상태 확인 생략');
@@ -79,8 +71,6 @@ class _MainUIState extends State<MainUI> {
         '[AUTH] currentUser 결과: ${account == null ? 'null (계정 없음)' : '계정 있음'}',
       );
 
-      // currentUser가 비어 있어도 새로고침 후 기존 Google 세션이 남아 있을 수 있다.
-      // 로그인 화면을 먼저 보여주지 않고 silent restore를 완료한 뒤 판단한다.
       if (account == null) {
         AppLogger.i('[AUTH] currentUser 없음 → signInSilently() 세션 복원 시도');
         account = await _authManager.signInSilently();
@@ -90,7 +80,7 @@ class _MainUIState extends State<MainUI> {
       }
 
       if (account != null && mounted) {
-        AppLogger.i('[AUTH] 로그인 계정 확인 성공 → OverviewPage 이동 준비');
+        AppLogger.i('[AUTH] 로그인 계정 확인 성공 → API 세션 복원 확인');
         await _handleAuthenticatedAccount(account);
       } else {
         AppLogger.i('[AUTH] 복원할 Google 세션 없음 → 로그인 화면 표시');
@@ -127,6 +117,21 @@ class _MainUIState extends State<MainUI> {
     if (!mounted) return;
 
     try {
+      // canAccessScopes()만 확인하면 웹 새로고침 후 OAuth scope 상태가
+      // 복원되지 않은 것처럼 보여 매번 권한 요청 화면으로 갈 수 있다.
+      // 실제 Google API 인증 클라이언트 복원을 먼저 시도한다.
+      try {
+        await _authManager.getClient();
+        AppLogger.i('[AUTH] Google API 인증 클라이언트 복원 성공 → 권한 요청 생략');
+        await _saveLoggedInState(true);
+
+        if (!mounted) return;
+        _navigateToOverview(account);
+        return;
+      } catch (clientError) {
+        AppLogger.i('[AUTH] 기존 Google API 클라이언트 복원 실패 → scope 권한 확인: $clientError');
+      }
+
       final authorized = await _authManager.canAccessScopes();
       AppLogger.i('[AUTH] Google API 권한 상태: $authorized');
 
@@ -199,7 +204,6 @@ class _MainUIState extends State<MainUI> {
     }
   }
 
-  /// Drive/Sheets 권한 요청은 반드시 사용자 클릭으로 시작한다.
   Future<void> _handleAuthorizeScopes() async {
     if (_isLoading || _authFlowInProgress) return;
 
