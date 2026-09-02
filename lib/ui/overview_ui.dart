@@ -7,7 +7,7 @@ import 'package:intl/intl.dart';
 
 // 서비스 및 UI 클래스 임포트
 import 'package:household_ledger/services/auth/google_auth.dart';
-import 'package:household_ledger/services/google_drive/google_drive_cache.dart'; // 💡 캐시 매니저 임포트 추가
+import 'package:household_ledger/services/google_drive/google_drive_cache.dart';
 import 'package:household_ledger/services/ledger_ingestion/ledger_item.dart';
 import 'package:household_ledger/services/ledger_ingestion/ledger_transaction_service.dart';
 
@@ -15,7 +15,6 @@ import 'package:household_ledger/ui/ledger_ingestion_ui.dart';
 import 'package:household_ledger/ui/setting_ui.dart';
 import 'package:household_ledger/ui/category_detail_ui.dart';
 import 'package:household_ledger/services/utils/app_logger.dart';
-
 
 class OverviewPage extends StatefulWidget {
   final GoogleSignInAccount googleUser;
@@ -27,26 +26,20 @@ class OverviewPage extends StatefulWidget {
 }
 
 class _OverviewPageState extends State<OverviewPage> {
-  // PageView 제어를 위한 컨트롤러 및 현재 페이지 인덱스
   final PageController _pageController = PageController();
   int _currentPage = 0;
 
-  // 서비스 및 캐시 객체
   final GoogleAuthManager _authManager = GoogleAuthManager();
   final HouseholdSheetService _sheetService = HouseholdSheetService();
-  final LedgerCacheManager _cacheManager = LedgerCacheManager(); // 💡 캐시 매니저 선언
+  final LedgerCacheManager _cacheManager = LedgerCacheManager();
 
-  // 현재 기준 계정 이메일 (기본값: 로그인된 구글 계정 이메일)
   late String _currentSelectedEmail;
-
-  // 통화 포맷터
   final NumberFormat _currencyFormatter = NumberFormat('#,###');
 
-  // 데이터 상태 변수
   bool _isLoading = true;
+  bool _authorizationRequired = false;
   String? _errorMessage;
 
-  // 원본 아이템 리스트 저장용 변수
   List<LedgerItem> _rawExpenses = [];
   List<LedgerItem> _rawIncomes = [];
 
@@ -60,7 +53,7 @@ class _OverviewPageState extends State<OverviewPage> {
   @override
   void initState() {
     super.initState();
-    _currentSelectedEmail = widget.googleUser.email; // 💡 기본 계정으로 초기화
+    _currentSelectedEmail = widget.googleUser.email;
     _loadMonthlyData();
   }
 
@@ -72,6 +65,8 @@ class _OverviewPageState extends State<OverviewPage> {
 
   /// 구글 시트에서 이번 달 통합 데이터 불러오기 및 가공
   Future<void> _loadMonthlyData() async {
+    if (!mounted) return;
+
     setState(() {
       _isLoading = true;
       _errorMessage = null;
@@ -84,14 +79,12 @@ class _OverviewPageState extends State<OverviewPage> {
 
       final AuthClient client = await _authManager.getClient();
 
-      // 1. 통합 시트 데이터 1회 불러오기
       final List<LedgerItem> totalItems = await _sheetService.getMonthlyLedger(
         client: client,
         year: targetYear,
         month: targetMonth,
       );
 
-      // 2. TransactionType에 따라 지출 / 수입 리스트로 분리
       final List<LedgerItem> expenses = [];
       final List<LedgerItem> incomes = [];
 
@@ -103,7 +96,6 @@ class _OverviewPageState extends State<OverviewPage> {
         }
       }
 
-      // 3. 지출 데이터 집계
       int totalExp = 0;
       final Map<String, int> expCatMap = {};
       final Map<String, int> expMethodMap = {};
@@ -121,7 +113,6 @@ class _OverviewPageState extends State<OverviewPage> {
         }
       }
 
-      // 4. 수입 데이터 집계
       int totalInc = 0;
       final Map<String, int> incCatMap = {};
 
@@ -133,34 +124,78 @@ class _OverviewPageState extends State<OverviewPage> {
         incCatMap[category] = (incCatMap[category] ?? 0) + amount;
       }
 
-      // 5. 기존 상태 변수(setState)에 반영
       if (mounted) {
         setState(() {
           _rawExpenses = expenses;
           _rawIncomes = incomes;
-
           _totalExpense = totalExp;
           _expenseCategories = expCatMap;
           _expenseMethods = expMethodMap;
-
           _totalIncome = totalInc;
           _incomeCategories = incCatMap;
-
+          _authorizationRequired = false;
           _isLoading = false;
         });
       }
     } catch (e) {
-      AppLogger.i("데이터 조회 에러: $e");
+      AppLogger.i('데이터 조회 에러: $e');
+
+      final bool isAuthorizationError =
+          e.toString().contains('Google API 권한') ||
+          e.toString().contains('Google API 인증') ||
+          e.toString().contains('로그인 세션');
+
       if (mounted) {
         setState(() {
-          _errorMessage = "인증 세션이 만료되었거나 데이터를 불러올 수 없습니다.\n다시 로그인해 주세요.";
+          _authorizationRequired = isAuthorizationError;
+          _errorMessage = isAuthorizationError
+              ? 'Google Drive와 Sheets 접근 권한이 필요합니다.\n아래 버튼을 눌러 권한을 연결해 주세요.'
+              : '가계부 데이터를 불러오지 못했습니다.\n잠시 후 다시 시도해 주세요.';
           _isLoading = false;
         });
       }
     }
   }
 
-  // 선택한 카테고리 상세 페이지로 이동
+  /// 웹에서 Google Drive/Sheets 권한을 사용자 클릭으로 다시 요청한다.
+  Future<void> _authorizeGoogleApis() async {
+    if (_isLoading) return;
+
+    AppLogger.i('[AUTH] Google API 권한 재요청 시작');
+    setState(() {
+      _isLoading = true;
+      _errorMessage = null;
+    });
+
+    try {
+      final bool authorized = await _authManager.authorizeScopes();
+      AppLogger.i('[AUTH] Google API 권한 재요청 결과: $authorized');
+
+      if (!authorized) {
+        if (!mounted) return;
+        setState(() {
+          _authorizationRequired = true;
+          _errorMessage = 'Google API 권한 승인이 취소되었습니다.';
+          _isLoading = false;
+        });
+        return;
+      }
+
+      await _loadMonthlyData();
+    } catch (e, stackTrace) {
+      AppLogger.i('[AUTH] Google API 권한 요청 오류: $e');
+      AppLogger.i('[AUTH] Google API 권한 요청 StackTrace: $stackTrace');
+
+      if (mounted) {
+        setState(() {
+          _authorizationRequired = true;
+          _errorMessage = 'Google API 권한을 연결하지 못했습니다.\n다시 시도해 주세요.';
+          _isLoading = false;
+        });
+      }
+    }
+  }
+
   Future<void> _navigateToCategoryDetail({
     required String categoryName,
     required bool isExpense,
@@ -221,13 +256,12 @@ class _OverviewPageState extends State<OverviewPage> {
       MaterialPageRoute(
         builder: (context) => SettingUI(
           googleUser: widget.googleUser,
-          cacheManager: _cacheManager, // 💡 선언된 cacheManager 전달
-          currentSelectedEmail: _currentSelectedEmail, // 💡 선언된 currentSelectedEmail 전달
+          cacheManager: _cacheManager,
+          currentSelectedEmail: _currentSelectedEmail,
           onAccountChanged: (newEmail) {
             setState(() {
               _currentSelectedEmail = newEmail;
             });
-            // 기준 계정이 바뀌었으므로 데이터 재로드
             _loadMonthlyData();
           },
         ),
@@ -273,14 +307,27 @@ class _OverviewPageState extends State<OverviewPage> {
                     child: Column(
                       mainAxisAlignment: MainAxisAlignment.center,
                       children: [
-                        const Icon(Icons.error_outline, color: Colors.red, size: 48),
+                        Icon(
+                          _authorizationRequired
+                              ? Icons.lock_outline
+                              : Icons.error_outline,
+                          color: _authorizationRequired ? Colors.orange : Colors.red,
+                          size: 48,
+                        ),
                         const SizedBox(height: 16),
                         Text(_errorMessage!, textAlign: TextAlign.center),
                         const SizedBox(height: 16),
-                        ElevatedButton(
-                          onPressed: _loadMonthlyData,
-                          child: const Text('다시 시도'),
-                        ),
+                        if (_authorizationRequired)
+                          ElevatedButton.icon(
+                            onPressed: _authorizeGoogleApis,
+                            icon: const Icon(Icons.verified_user_outlined),
+                            label: const Text('Google 권한 연결'),
+                          )
+                        else
+                          ElevatedButton(
+                            onPressed: _loadMonthlyData,
+                            child: const Text('다시 시도'),
+                          ),
                       ],
                     ),
                   ),
@@ -360,7 +407,7 @@ class _OverviewPageState extends State<OverviewPage> {
       child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
         decoration: BoxDecoration(
-          color: isSelected ? Theme.of(context).primaryColor : Colors.grey[200],
+          color: isSelected ? Colors.teal : Colors.grey[200],
           borderRadius: BorderRadius.circular(20),
         ),
         child: Text(
@@ -382,106 +429,83 @@ class _OverviewPageState extends State<OverviewPage> {
     required Color colorScheme,
     required bool isExpense,
   }) {
-    final bool hasCategoryData = categoryData.isNotEmpty;
-
-    return SingleChildScrollView(
-      physics: const AlwaysScrollableScrollPhysics(),
-      padding: const EdgeInsets.all(16.0),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Card(
-            elevation: 2,
-            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-            child: Padding(
-              padding: const EdgeInsets.all(16.0),
-              child: Column(
-                children: [
-                  Text(
-                    '$title 차트',
-                    style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+    return ListView(
+      padding: const EdgeInsets.all(16),
+      children: [
+        Text(
+          title,
+          style: const TextStyle(fontSize: 22, fontWeight: FontWeight.bold),
+        ),
+        const SizedBox(height: 12),
+        Card(
+          child: Padding(
+            padding: const EdgeInsets.all(16),
+            child: Column(
+              children: [
+                Text(
+                  '${_currencyFormatter.format(totalAmount)} 원',
+                  style: TextStyle(
+                    fontSize: 28,
+                    fontWeight: FontWeight.bold,
+                    color: colorScheme,
                   ),
-                  const SizedBox(height: 16),
-                  SizedBox(
-                    height: 200,
-                    child: hasCategoryData
-                        ? _buildPieChart(categoryData, colorScheme)
-                        : const Center(
-                            child: Text(
-                              '내역이 없습니다.',
-                              style: TextStyle(color: Colors.grey),
-                            ),
-                          ),
-                  ),
-                ],
-              ),
-            ),
-          ),
-          const SizedBox(height: 16),
-          Card(
-            color: colorScheme.withOpacity(0.1),
-            elevation: 0,
-            child: ListTile(
-              title: Text(title, style: const TextStyle(fontWeight: FontWeight.bold)),
-              trailing: Text(
-                '${_currencyFormatter.format(totalAmount)} 원',
-                style: TextStyle(
-                  fontSize: 18,
-                  fontWeight: FontWeight.bold,
-                  color: colorScheme,
                 ),
-              ),
+                const SizedBox(
+                  height: 220,
+                  child: SizedBox.expand(),
+                ),
+              ],
             ),
           ),
-          const SizedBox(height: 16),
+        ),
+        const SizedBox(height: 20),
+        const Text(
+          '분류별',
+          style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+        ),
+        const SizedBox(height: 8),
+        if (categoryData.isNotEmpty)
+          ...categoryData.entries.map((entry) {
+            return _buildDetailTile(
+              name: entry.key,
+              amount: entry.value,
+              onTap: () => _navigateToCategoryDetail(
+                categoryName: entry.key,
+                isExpense: isExpense,
+              ),
+            );
+          })
+        else
+          const Padding(
+            padding: EdgeInsets.symmetric(vertical: 8.0),
+            child: Text('등록된 분류별 내역이 없습니다.', style: TextStyle(color: Colors.grey)),
+          ),
+        if (methodData != null) ...[
+          const SizedBox(height: 20),
           const Text(
-            '분류별 상세 (클릭시 세부 내역 이동)',
+            '결제 수단별',
             style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
           ),
           const SizedBox(height: 8),
-          if (hasCategoryData)
-            ...categoryData.entries.map((entry) {
+          if (methodData.isNotEmpty)
+            ...methodData.entries.map((entry) {
               return _buildDetailTile(
                 name: entry.key,
                 amount: entry.value,
                 onTap: () => _navigateToCategoryDetail(
                   categoryName: entry.key,
-                  isExpense: isExpense,
+                  isExpense: true,
+                  isPayMethod: true,
                 ),
               );
             })
           else
             const Padding(
               padding: EdgeInsets.symmetric(vertical: 8.0),
-              child: Text('등록된 분류별 내역이 없습니다.', style: TextStyle(color: Colors.grey)),
+              child: Text('등록된 결제 수단 내역이 없습니다.', style: TextStyle(color: Colors.grey)),
             ),
-          if (methodData != null) ...[
-            const SizedBox(height: 20),
-            const Text(
-              '결제 수단별',
-              style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
-            ),
-            const SizedBox(height: 8),
-            if (methodData.isNotEmpty)
-              ...methodData.entries.map((entry) {
-                return _buildDetailTile(
-                  name: entry.key,
-                  amount: entry.value,
-                  onTap: () => _navigateToCategoryDetail(
-                    categoryName: entry.key,
-                    isExpense: true,
-                    isPayMethod: true,
-                  ),
-                );
-              })
-            else
-              const Padding(
-                padding: EdgeInsets.symmetric(vertical: 8.0),
-                child: Text('등록된 결제 수단 내역이 없습니다.', style: TextStyle(color: Colors.grey)),
-              ),
-          ],
         ],
-      ),
+      ],
     );
   }
 
