@@ -1,4 +1,4 @@
-//google_auth.dart
+// google_auth.dart
 
 import 'package:googleapis/drive/v3.dart' as drive;
 import 'package:googleapis/sheets/v4.dart' as sheets;
@@ -11,7 +11,6 @@ import 'google_auth_stub.dart'
     show getGoogleAuthService;
 
 export 'google_auth_stub.dart';
-
 
 class GoogleAuthManager {
   static final List<String> defaultScopes = [
@@ -27,7 +26,6 @@ class GoogleAuthManager {
     return await _authService.getAuthenticatedClient();
   }
 
-  // 💡 모바일 환경일 때만 모바일 서비스의 signInSilently() 실행
   Future<dynamic> signInSilently() async {
     try {
       return await (_authService as dynamic).signInSilently();
@@ -36,13 +34,21 @@ class GoogleAuthManager {
     }
   }
 
-  // 💡 모바일 환경일 때만 모바일 서비스의 signOut() 실행
+  /// 웹에서 Drive/Sheets OAuth 권한을 사용자에게 요청한다.
+  /// 모바일에서는 이미 로그인 과정에서 권한이 처리되므로 현재 클라이언트를
+  /// 그대로 사용할 수 있게 true를 반환한다.
+  Future<bool> authorizeScopes() async {
+    try {
+      final result = await (_authService as dynamic).requestAuthorization();
+      return result == true;
+    } catch (_) {
+      return true;
+    }
+  }
+
   Future<void> signOut() async {
     try {
       await (_authService as dynamic).signOut();
     } catch (_) {}
   }
 }
-
-
-
