@@ -1,10 +1,10 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
-import 'package:shared_preferences/shared_preferences.dart';
 import 'package:household_ledger/services/auth/google_auth.dart';
-import 'package:household_ledger/ui/overview_ui.dart';
 import 'package:household_ledger/ui/google_sign_in_button.dart';
+import 'package:household_ledger/ui/overview_ui.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:household_ledger/services/utils/app_logger.dart';
 
 class MainUI extends StatefulWidget {
@@ -18,7 +18,6 @@ class _MainUIState extends State<MainUI> {
   bool _isLoading = true;
   bool _authorizationRequired = false;
   bool _processingAccount = false;
-  bool _silentRestoreStarted = false;
   String? _errorMessage;
 
   final GoogleAuthManager _authManager = GoogleAuthManager();
@@ -29,7 +28,7 @@ class _MainUIState extends State<MainUI> {
     super.initState();
     AppLogger.i('[AUTH] MainUI initState()');
 
-    // Google 로그인 결과는 onCurrentUserChanged로 통합 처리한다.
+    // 로그인 결과는 계정 변경 이벤트로도 처리한다.
     _accountSubscription = _authManager.onCurrentUserChanged.listen(
       _handleAccountChanged,
       onError: (error, stackTrace) {
@@ -52,28 +51,36 @@ class _MainUIState extends State<MainUI> {
     }
   }
 
-  /// 앱 시작 시 화면을 먼저 표시하고, 기존 Google 세션 복원은 백그라운드에서 수행한다.
+  /// 앱 시작 시 기존 Google 로그인 세션을 먼저 복원한다.
   ///
-  /// Web의 signInSilently()는 FedCM/One Tap 환경에 따라 오래 걸릴 수 있으므로
-  /// 첫 화면을 막지 않는다. 복원이 성공하면 결과와 onCurrentUserChanged 이벤트를
-  /// 통해 기존 계정으로 바로 OverviewPage까지 진행한다.
+  /// 이미 로그인된 계정이 있으면 로그인 화면을 잠깐 보여주는 대신
+  /// 세션 복원 → 권한 확인 → OverviewPage 이동까지 완료한 뒤 화면을 전환한다.
+  /// 기존 세션이 없을 때만 로그인 버튼을 표시한다.
   Future<void> _checkSignInState() async {
     AppLogger.i('[AUTH] _checkSignInState() 시작');
 
     try {
       AppLogger.i('[AUTH] currentUser 확인 시작');
-      final account = _authManager.currentUser;
+      var account = _authManager.currentUser;
       AppLogger.i(
         '[AUTH] currentUser 결과: ${account == null ? 'null (계정 없음)' : '계정 있음'}',
       );
 
-      if (account != null) {
+      // currentUser가 비어 있어도 새로고침 후 기존 Google 세션이 남아 있을 수 있다.
+      // 로그인 화면을 먼저 보여주지 않고 silent restore를 완료한 뒤 판단한다.
+      if (account == null) {
+        AppLogger.i('[AUTH] currentUser 없음 → signInSilently() 세션 복원 시도');
+        account = await _authManager.signInSilently();
+        AppLogger.i(
+          '[AUTH] signInSilently() 결과: ${account == null ? '기존 세션 없음' : '계정 복원 성공'}',
+        );
+      }
+
+      if (account != null && mounted) {
+        AppLogger.i('[AUTH] 로그인 계정 확인 성공 → OverviewPage 이동 준비');
         await _handleAuthenticatedAccount(account);
       } else {
-        // SharedPreferences의 로그인 여부는 Google 인증 상태가 아니므로
-        // 여기서 false로 덮어쓰지 않는다. 기존 세션 복원을 백그라운드에서 시도한다.
-        AppLogger.i('[AUTH] currentUser 없음 → silent sign-in 백그라운드 복원 시작');
-        _startSilentRestore();
+        AppLogger.i('[AUTH] 복원할 Google 세션 없음 → 로그인 화면 표시');
       }
     } catch (e, stackTrace) {
       AppLogger.i('[AUTH] 로그인/권한 확인 중 오류 발생: $e');
@@ -89,39 +96,6 @@ class _MainUIState extends State<MainUI> {
         AppLogger.i('[AUTH] _checkSignInState() 종료 → loading=false');
         setState(() => _isLoading = false);
       }
-    }
-  }
-
-  void _startSilentRestore() {
-    if (_silentRestoreStarted) return;
-    _silentRestoreStarted = true;
-
-    // 의도적으로 await하지 않는다.
-    unawaited(_restoreExistingGoogleSession());
-  }
-
-  Future<void> _restoreExistingGoogleSession() async {
-    try {
-      AppLogger.i('[AUTH] signInSilently() 백그라운드 호출');
-      final account = await _authManager.signInSilently();
-
-      if (account == null || !mounted || _processingAccount) {
-        AppLogger.i('[AUTH] silent sign-in 결과: 기존 세션 없음');
-        return;
-      }
-
-      AppLogger.i('[AUTH] silent sign-in 성공 → 기존 계정 처리');
-      _processingAccount = true;
-      try {
-        await _handleAuthenticatedAccount(account);
-      } finally {
-        _processingAccount = false;
-      }
-    } catch (e, stackTrace) {
-      // Silent restore 실패는 로그인 실패가 아니다.
-      // 사용자가 공식 Google 버튼으로 로그인할 수 있도록 화면은 그대로 둔다.
-      AppLogger.i('[AUTH] silent sign-in 백그라운드 복원 실패: $e');
-      AppLogger.i('[AUTH] silent sign-in StackTrace: $stackTrace');
     }
   }
 
