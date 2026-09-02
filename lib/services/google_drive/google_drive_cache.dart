@@ -11,7 +11,7 @@ class LedgerCacheManager {
   /// 구조 변경: Map<이메일 계정, Map<폴더 이름, 폴더 ID>>
   final Map<String, Map<String, String>> _folderIdMap = {};
   
-  /// 연도별 시트 Map (필요 시 accountEmail별 관리가 필요하다면 확장 가능)
+  /// 연도별 시트 Map (필요 시 accountEmail별 관리이 필요하다면 확장 가능)
   final Map<int, String> _yearToSpreadsheetIdMap = {};
 
   bool get isInitialized => _folderIdMap.isNotEmpty;
@@ -63,26 +63,70 @@ class LedgerCacheManager {
     AppLogger.i("📁 전체 폴더 캐시 갱신 완료: $_folderIdMap");
   }
 
-  /// 3️⃣ 모든 연도별 시트 목록 스캔 및 캐싱 (Folder & Sheet Repository 이용)
+  /// 3️⃣ 모든 계정의 연도별 시트 목록 스캔 및 캐싱
+  ///
+  /// 폴더 캐시는 내 계정뿐 아니라 공유받은 계정까지 통합되어 있으므로,
+  /// 초기화 시 모든 계정의 '$folderName' 폴더를 순회하여
+  /// {계정: {시트명: 시트ID}} 형태로 전체 공유 시트 정보를 로그로 남긴다.
+  ///
+  /// 기존의 _yearToSpreadsheetIdMap은 현재 로그인 계정의 폴더만 대상으로
+  /// 유지하여, 공유 계정의 동일 연도 시트가 현재 계정 캐시를 덮어쓰지 않도록 한다.
   Future<void> initializeAllSheets({
     required DriveFolderService folderRepo,
     required DriveSheetService sheetRepo,
     required String accountEmail,
     String folderName = "가계부",
   }) async {
-    final folderId = await cachedFolderId(
+    // 먼저 내 계정 + 공유받은 계정의 폴더를 모두 확보한다.
+    final currentFolderId = await cachedFolderId(
       folderRepo,
       accountEmail: accountEmail,
       folderName: folderName,
     );
 
-    if (folderId == null) {
+    if (currentFolderId == null) {
       AppLogger.w("계정 '$accountEmail'의 '$folderName' 폴더를 찾을 수 없습니다.");
+    }
+
+    // 전체 계정의 폴더별 스프레드시트를 조회한다.
+    final allSpreadsheetMaps = <String, Map<String, String>>{};
+
+    for (final entry in _folderIdMap.entries) {
+      final email = entry.key;
+      final folderMap = entry.value;
+
+      for (final folderEntry in folderMap.entries) {
+        final targetFolderName = folderEntry.key;
+        final folderId = folderEntry.value;
+
+        try {
+          final sheetMap = await sheetRepo.getSpreadsheetsInFolder(
+            folderId: folderId,
+          );
+
+          final accountSheetKey = '$email / $targetFolderName';
+          allSpreadsheetMaps[accountSheetKey] = sheetMap;
+
+          AppLogger.i(
+            "📊 [$email] '$targetFolderName' 폴더(ID: $folderId) 내 전체 시트: $sheetMap",
+          );
+        } catch (e) {
+          AppLogger.e(
+            "❌ [$email] '$targetFolderName' 폴더(ID: $folderId) 내 시트 조회 실패: $e",
+          );
+        }
+      }
+    }
+
+    AppLogger.i("📊 전체 공유 스프레드시트 통합 목록: $allSpreadsheetMaps");
+
+    // 기존 기능 유지: 현재 로그인 계정의 연도별 시트만 기존 캐시에 저장한다.
+    if (currentFolderId == null) {
       return;
     }
 
     final yearSheets = await sheetRepo.getYearlySpreadsheets(
-      folderId: folderId,
+      folderId: currentFolderId,
       sheetName: folderName,
     );
 
