@@ -11,21 +11,18 @@ import 'package:household_ledger/services/ledger_ingestion/ledger_write_service.
 /// 기존 호출부의 변경을 최소화하기 위해 공개 API는 그대로 유지한다.
 class LedgerDataService {
   final LedgerSpreadsheetService sheetSetupService;
-  final LedgerReadService _readService;
-  final LedgerWriteService _writeService;
 
-  factory LedgerDataService({LedgerSpreadsheetService? sheetSetupService}) {
-    final sharedService = sheetSetupService ?? LedgerSpreadsheetService();
-    return LedgerDataService._(sharedService);
-  }
+  late final LedgerReadService _readService = LedgerReadService(
+    sheetSetupService: sheetSetupService,
+  );
 
-  LedgerDataService._(this.sheetSetupService)
-      : _readService = LedgerReadService(
-          sheetSetupService: sheetSetupService,
-        ),
-        _writeService = LedgerWriteService(
-          sheetSetupService: sheetSetupService,
-        );
+  late final LedgerWriteService _writeService = LedgerWriteService(
+    sheetSetupService: sheetSetupService,
+  );
+
+  LedgerDataService({LedgerSpreadsheetService? sheetSetupService})
+      : sheetSetupService =
+            sheetSetupService ?? LedgerSpreadsheetService();
 
   CategoryMapper get categoryMapper => sheetSetupService.categoryMapper;
 
