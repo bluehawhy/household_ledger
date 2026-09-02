@@ -20,7 +20,6 @@ class GoogleAuthMobileService extends GoogleAuthService {
   Stream<GoogleSignInAccount?> get onCurrentUserChanged =>
       _googleSignIn.onCurrentUserChanged;
 
-  /// 사용자가 로그인 버튼을 눌렀을 때 interactive Google 로그인을 수행한다.
   Future<GoogleSignInAccount?> signIn() async {
     return await _googleSignIn.signIn();
   }
@@ -71,6 +70,8 @@ class GoogleAuthMobileService extends GoogleAuthService {
       rethrow;
     }
   }
+
+  Future<AuthClient?> restoreAuthorizedClient() async => null;
 
   Future<bool> canAccessScopes() async => true;
 
