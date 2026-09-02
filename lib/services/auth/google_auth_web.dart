@@ -23,10 +23,6 @@ class GoogleAuthWebService implements GoogleAuthService {
   @override
   GoogleSignInAccount? get currentUser => _googleSignIn.currentUser;
 
-  /// 웹 새로고침 후 Google 로그인 상태를 자동 복원한다.
-  ///
-  /// 웹에서는 Authentication과 OAuth Authorization이 분리되어 있으므로
-  /// signInSilently()는 계정 로그인 상태만 복원한다.
   Future<GoogleSignInAccount?> signInSilently() async {
     try {
       return await _googleSignIn.signInSilently();
@@ -36,24 +32,15 @@ class GoogleAuthWebService implements GoogleAuthService {
     }
   }
 
-  /// 현재 로그인 계정이 Drive/Sheets scope에 접근할 수 있는지 확인한다.
   Future<bool> canAccessScopes() async {
     final account = _googleSignIn.currentUser;
-    if (account == null) {
-      return false;
-    }
-
+    if (account == null) return false;
     return await _googleSignIn.canAccessScopes(scopes);
   }
 
-  /// 사용자 클릭으로 Drive/Sheets 권한을 요청한다.
-  ///
-  /// 웹에서는 추가 OAuth scope 요청이 사용자 interaction에서 시작되어야 한다.
   Future<bool> requestAuthorization() async {
     final account = _googleSignIn.currentUser;
-    if (account == null) {
-      return false;
-    }
+    if (account == null) return false;
 
     try {
       return await _googleSignIn.requestScopes(scopes);
@@ -65,7 +52,6 @@ class GoogleAuthWebService implements GoogleAuthService {
 
   @override
   Future<AuthClient> getAuthenticatedClient() async {
-    // Authentication 계정이 없으면 먼저 기존 Google 세션을 복원한다.
     GoogleSignInAccount? account = _googleSignIn.currentUser;
     account ??= await signInSilently();
 
@@ -73,14 +59,25 @@ class GoogleAuthWebService implements GoogleAuthService {
       throw Exception('Google 로그인 세션이 없습니다.');
     }
 
-    // 웹에서는 signIn/signInSilently가 Drive/Sheets OAuth scope를
-    // 자동으로 승인하지 않는다. 이미 승인된 scope인지 먼저 확인한다.
+    // 기존에 승인된 scope가 있으면 access token을 다시 가져온다.
+    // 새로고침 후 canAccessScopes()가 일시적으로 false를 반환하는 경우에도
+    // 실제 OAuth authorization 상태를 먼저 확인할 수 있도록 authenticatedClient()
+    // 를 시도한다.
+    try {
+      final client = await _googleSignIn.authenticatedClient();
+      if (client != null) {
+        return client;
+      }
+    } catch (e) {
+      print('⚠️ [Web Auth] 기존 AuthClient 복원 실패: $e');
+    }
+
+    // 기존 authorization을 복원하지 못한 경우에만 현재 scope 상태를 확인한다.
     final bool authorized = await _googleSignIn.canAccessScopes(scopes);
     if (!authorized) {
       throw Exception('Google API 권한 승인이 필요합니다.');
     }
 
-    // 필요한 scope가 승인된 경우에만 googleapis AuthClient를 생성한다.
     final client = await _googleSignIn.authenticatedClient();
     if (client != null) {
       return client;
