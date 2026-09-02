@@ -21,27 +21,29 @@ class _MainUIState extends State<MainUI> {
     _checkSignInState();
   }
 
-  /// 💡 저장된 세션 확인 (이전처럼 무겁게 getClient()를 검증하지 않음)
+  /// 앱 시작/새로고침 시 기존 Google 로그인 세션을 복원한다.
+  /// SharedPreferences의 로그인 플래그를 먼저 검사하지 않고
+  /// GoogleSignIn의 실제 현재 계정/자동 로그인 상태를 기준으로 판단한다.
   Future<void> _checkSignInState() async {
-    final prefs = await SharedPreferences.getInstance();
-    final bool isLoggedInFlag = prefs.getBool('is_logged_in') ?? false;
-
-    if (!isLoggedInFlag) {
-      if (mounted) setState(() => _isLoading = false);
-      return;
-    }
-
     try {
-      // 1. Silent Sign-In으로 기존 로그인 계정 복원
-      var account = _authManager.currentUser ?? await _authManager.signInSilently();
+      // GoogleSignIn의 현재 계정이 이미 메모리에 있다면 바로 사용한다.
+      var account = _authManager.currentUser;
 
-      // 2. 계정 정보가 존재한다면 바로 이동! (getClient() 호출 예외로 인한 세션 삭제 방지)
-      if (account != null && mounted) {
+      // 현재 계정이 없다면 저장된 Google 세션으로 자동 복원을 시도한다.
+      account ??= await _authManager.signInSilently();
+
+      if (account != null) {
+        // 복원 성공 시 로그인 플래그도 최신 상태로 맞춘다.
+        final prefs = await SharedPreferences.getInstance();
+        await prefs.setBool('is_logged_in', true);
+
+        if (!mounted) return;
         _navigateToOverview(account);
         return;
       }
-      
-      // 만약 정말로 계정을 가져올 수 없다면 로그인 플래그만 정리
+
+      // 실제 Google 계정이 없을 때만 로그인 플래그를 정리한다.
+      final prefs = await SharedPreferences.getInstance();
       await prefs.setBool('is_logged_in', false);
     } catch (e) {
       AppLogger.i("자동 로그인 복원 중 오류 발생: $e");
@@ -54,9 +56,10 @@ class _MainUIState extends State<MainUI> {
 
   /// 수동 로그인 버튼 클릭 시
   Future<void> _handleSignIn() async {
+    if (_isLoading) return;
+
     setState(() => _isLoading = true);
     try {
-      // 수동 로그인 진행 (signIn 또는 getClient 호출)
       final client = await _authManager.getClient();
       final account = _authManager.currentUser;
 
