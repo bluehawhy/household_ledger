@@ -18,6 +18,7 @@ class _MainUIState extends State<MainUI> {
   bool _isLoading = true;
   bool _authorizationRequired = false;
   bool _processingAccount = false;
+  bool _authFlowInProgress = false;
   String? _errorMessage;
 
   final GoogleAuthManager _authManager = GoogleAuthManager();
@@ -29,6 +30,8 @@ class _MainUIState extends State<MainUI> {
     AppLogger.i('[AUTH] MainUI initState()');
 
     // 로그인 결과는 계정 변경 이벤트로도 처리한다.
+    // 단, 초기 세션 복원 중에는 _checkSignInState()가 담당하므로
+    // 같은 계정을 중복 처리하지 않는다.
     _accountSubscription = _authManager.onCurrentUserChanged.listen(
       _handleAccountChanged,
       onError: (error, stackTrace) {
@@ -40,14 +43,18 @@ class _MainUIState extends State<MainUI> {
   }
 
   Future<void> _handleAccountChanged(dynamic account) async {
-    if (account == null || !mounted || _processingAccount) return;
+    if (account == null || !mounted || _processingAccount || _authFlowInProgress) {
+      return;
+    }
 
     AppLogger.i('[AUTH] Google 계정 변경 이벤트 수신');
     _processingAccount = true;
+    _authFlowInProgress = true;
     try {
       await _handleAuthenticatedAccount(account);
     } finally {
       _processingAccount = false;
+      _authFlowInProgress = false;
     }
   }
 
@@ -57,6 +64,12 @@ class _MainUIState extends State<MainUI> {
   /// 세션 복원 → 권한 확인 → OverviewPage 이동까지 완료한 뒤 화면을 전환한다.
   /// 기존 세션이 없을 때만 로그인 버튼을 표시한다.
   Future<void> _checkSignInState() async {
+    if (_authFlowInProgress) {
+      AppLogger.i('[AUTH] 다른 인증 흐름이 진행 중 → 초기 로그인 상태 확인 생략');
+      return;
+    }
+
+    _authFlowInProgress = true;
     AppLogger.i('[AUTH] _checkSignInState() 시작');
 
     try {
@@ -92,6 +105,7 @@ class _MainUIState extends State<MainUI> {
         });
       }
     } finally {
+      _authFlowInProgress = false;
       if (mounted) {
         AppLogger.i('[AUTH] _checkSignInState() 종료 → loading=false');
         setState(() => _isLoading = false);
@@ -147,8 +161,9 @@ class _MainUIState extends State<MainUI> {
   }
 
   Future<void> _handleSignIn() async {
-    if (_isLoading) return;
+    if (_isLoading || _authFlowInProgress) return;
 
+    _authFlowInProgress = true;
     AppLogger.i('[AUTH] Google 로그인 시작');
     setState(() {
       _isLoading = true;
@@ -179,13 +194,16 @@ class _MainUIState extends State<MainUI> {
           _isLoading = false;
         });
       }
+    } finally {
+      _authFlowInProgress = false;
     }
   }
 
   /// Drive/Sheets 권한 요청은 반드시 사용자 클릭으로 시작한다.
   Future<void> _handleAuthorizeScopes() async {
-    if (_isLoading) return;
+    if (_isLoading || _authFlowInProgress) return;
 
+    _authFlowInProgress = true;
     AppLogger.i('[AUTH] Google API 권한 요청 시작');
     setState(() {
       _isLoading = true;
@@ -221,6 +239,8 @@ class _MainUIState extends State<MainUI> {
           _isLoading = false;
         });
       }
+    } finally {
+      _authFlowInProgress = false;
     }
   }
 
