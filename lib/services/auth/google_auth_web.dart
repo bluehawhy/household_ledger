@@ -23,14 +23,14 @@ class GoogleAuthWebService implements GoogleAuthService {
   @override
   GoogleSignInAccount? get currentUser => _googleSignIn.currentUser;
 
-  /// 사용자가 로그인 버튼을 눌렀을 때만 interactive Google 로그인 popup을 연다.
+  Stream<GoogleSignInAccount?> get onCurrentUserChanged =>
+      _googleSignIn.onCurrentUserChanged;
+
+  /// 6.x 웹에서는 Google SDK가 렌더링한 버튼을 통해 interactive sign-in을 시작한다.
+  /// MainUI에서는 이 메서드를 직접 호출하지 않고 web renderButton의
+  /// onCurrentUserChanged 이벤트를 통해 로그인 완료를 감지한다.
   Future<GoogleSignInAccount?> signIn() async {
-    try {
-      return await _googleSignIn.signIn();
-    } catch (e) {
-      print('❌ [Web Auth Error] Google 로그인 실패: $e');
-      rethrow;
-    }
+    return await _googleSignIn.signIn();
   }
 
   Future<GoogleSignInAccount?> signInSilently() async {
