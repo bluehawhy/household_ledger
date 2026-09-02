@@ -25,8 +25,8 @@ class _MainUIState extends State<MainUI> {
     _checkSignInState();
   }
 
-  /// 앱 시작/새로고침 시 기존 Google 로그인 세션과
-  /// Drive/Sheets API 인증 상태를 함께 확인한다.
+  /// 앱 시작/새로고침 시 기존 Google 로그인 세션만 복원한다.
+  /// API 권한이 필요한 경우에는 로그인 화면에서 사용자에게 연결을 요청한다.
   Future<void> _checkSignInState() async {
     AppLogger.i('[AUTH] _checkSignInState() 시작');
 
@@ -62,28 +62,25 @@ class _MainUIState extends State<MainUI> {
       await prefs.setBool('is_logged_in', true);
       AppLogger.i('[AUTH] SharedPreferences is_logged_in=true 저장 완료');
 
-      // 로그인과 별도로 필요한 Drive/Sheets API 인증도 MainUI에서 확인한다.
-      try {
-        AppLogger.i('[AUTH] 로그인 복원 후 Google API 인증 확인 시작');
-        await _authManager.getClient();
-        AppLogger.i('[AUTH] Google API 인증 확인 성공');
+      // 로그인 세션은 복원되었지만 API 권한이 없는 경우에만
+      // MainUI에서 사용자에게 권한 연결 버튼을 보여준다.
+      final authorized = await _authManager.canAccessScopes();
+      AppLogger.i('[AUTH] Google API 권한 상태: $authorized');
 
-        if (!mounted) return;
-        _navigateToOverview(account);
-        return;
-      } catch (e) {
-        if (_isAuthorizationError(e)) {
-          AppLogger.i('[AUTH] 로그인은 복원되었지만 Google API 권한이 필요함');
-          if (mounted) {
-            setState(() {
-              _authorizationRequired = true;
-              _errorMessage = 'Google Drive와 Sheets 접근 권한이 필요합니다.';
-            });
-          }
-          return;
+      if (!authorized) {
+        AppLogger.i('[AUTH] 로그인은 복원되었지만 Google API 권한이 필요함');
+        if (mounted) {
+          setState(() {
+            _authorizationRequired = true;
+            _errorMessage = 'Google Drive와 Sheets 접근 권한이 필요합니다.';
+          });
         }
-        rethrow;
+        return;
       }
+
+      AppLogger.i('[AUTH] 로그인 및 Google API 권한 확인 성공 → OverviewPage 이동');
+      if (!mounted) return;
+      _navigateToOverview(account);
     } catch (e, stackTrace) {
       AppLogger.i('[AUTH] 자동 로그인/권한 확인 중 오류 발생: $e');
       AppLogger.i('[AUTH] StackTrace: $stackTrace');
@@ -120,46 +117,63 @@ class _MainUIState extends State<MainUI> {
     });
 
     try {
-      AppLogger.i('[AUTH] getClient() 호출');
-      await _authManager.getClient();
-      AppLogger.i('[AUTH] getClient() 성공');
-    } catch (e) {
-      AppLogger.i('[AUTH] getClient() 결과: $e');
-
-      if (!_isAuthorizationError(e)) {
-        rethrow;
+      // 계정이 아직 없다면 여기서 실제 사용자 로그인 popup을 연다.
+      var account = _authManager.currentUser;
+      if (account == null) {
+        AppLogger.i('[AUTH] currentUser 없음 → interactive signIn() 호출');
+        account = await _authManager.signIn();
+        AppLogger.i(
+          '[AUTH] signIn() 결과: ${account == null ? 'null' : '계정 있음'}',
+        );
+      } else {
+        AppLogger.i('[AUTH] 기존 로그인 계정 사용 → interactive signIn() 생략');
       }
 
-      // 웹에서는 추가 OAuth scope 요청이 사용자 클릭에서 시작되어야 한다.
-      AppLogger.i('[AUTH] Google API 권한 요청 시작');
-      final authorized = await _authManager.authorizeScopes();
-      AppLogger.i('[AUTH] Google API 권한 요청 결과: $authorized');
+      if (account == null) {
+        throw Exception('Google 로그인에 실패했거나 사용자가 취소했습니다.');
+      }
+
+      // 로그인 직후 API 권한을 확인하고, 필요할 때만 사용자 interaction으로 요청한다.
+      bool authorized = await _authManager.canAccessScopes();
+      AppLogger.i('[AUTH] 로그인 후 Google API 권한 상태: $authorized');
+
+      if (!authorized) {
+        AppLogger.i('[AUTH] Google API 권한 요청 시작');
+        authorized = await _authManager.authorizeScopes();
+        AppLogger.i('[AUTH] Google API 권한 요청 결과: $authorized');
+      }
 
       if (!authorized) {
         throw Exception('Google API 권한 승인이 취소되었습니다.');
       }
 
       // 권한 승인 후 실제 API 클라이언트 생성까지 확인한다.
+      AppLogger.i('[AUTH] 권한 승인 후 getClient() 호출');
       await _authManager.getClient();
       AppLogger.i('[AUTH] 권한 승인 후 Google API 인증 성공');
+
+      if (!mounted) return;
+
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setBool('is_logged_in', true);
+      AppLogger.i('[AUTH] 로그인/권한 처리 성공 → is_logged_in=true');
+
+      _navigateToOverview(account);
+    } catch (e, stackTrace) {
+      AppLogger.i('[AUTH] 로그인/권한 처리 에러: $e');
+      AppLogger.i('[AUTH] 로그인/권한 처리 StackTrace: $stackTrace');
+      if (mounted) {
+        setState(() {
+          _authorizationRequired = false;
+          _errorMessage = 'Google 로그인 또는 권한 연결에 실패했습니다.\n다시 시도해 주세요.';
+        });
+      }
+    } finally {
+      if (mounted) {
+        AppLogger.i('[AUTH] 로그인/권한 처리 종료 → loading=false');
+        setState(() => _isLoading = false);
+      }
     }
-
-    final account = _authManager.currentUser;
-    AppLogger.i(
-      '[AUTH] 로그인 후 currentUser: ${account == null ? 'null' : '계정 있음'}',
-    );
-
-    if (account == null) {
-      throw Exception('Google 로그인 계정을 확인할 수 없습니다.');
-    }
-
-    if (!mounted) return;
-
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setBool('is_logged_in', true);
-    AppLogger.i('[AUTH] 로그인/권한 처리 성공 → is_logged_in=true');
-
-    _navigateToOverview(account);
   }
 
   void _navigateToOverview(dynamic account) {
