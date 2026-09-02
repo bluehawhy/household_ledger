@@ -1,6 +1,8 @@
 // 💡 프로젝트 내부 서비스 import
+import 'package:googleapis/drive/v3.dart' as drive;
 import 'package:household_ledger/services/auth/google_auth_dart.dart';
 import 'package:household_ledger/services/auth/google_auth_stub.dart';
+import 'package:household_ledger/services/google_drive/google_drive_spreadsheet.dart';
 import 'package:household_ledger/services/ledger_ingestion/ledger_item.dart';
 import 'package:household_ledger/services/ledger_ingestion/ledger_ingestion_service.dart';
 import 'package:household_ledger/services/ledger_ingestion/ledger_transaction_service.dart';
@@ -8,16 +10,18 @@ import 'package:household_ledger/services/utils/app_logger.dart';
 
 void main() async {
   AppLogger.i("--------------------------------------------------");
-  AppLogger.i("📊 가계부 통합 테스트 (입력 & 수정 케이스) 시작");
+  AppLogger.i("📊 가계부 통합 테스트 (입력 & 수정 & 시트 검색) 시작");
   AppLogger.i("--------------------------------------------------");
 
   // ⚙️ [테스트 제어 플래그] 실행하려는 테스트 케이스를 true / false 로 설정하세요.
   const bool runInsertTest = false; // 👈 입력 테스트 실행 여부
   const bool runUpdateTest = false; // 👈 업데이트 테스트 실행 여부
+  const bool runSpreadsheetSearchTest = true; // 👈 Google Drive 시트 검색 테스트
 
   // 1. 서비스 및 인증 객체 생성
+  // ⚠️ 공유 폴더/파일 검색 확인을 위해 drive.file 대신 전체 Drive scope 사용
   final GoogleAuthService authService = DesktopGoogleAuthService([
-    'https://www.googleapis.com/auth/drive.file',
+    'https://www.googleapis.com/auth/drive',
     'https://www.googleapis.com/auth/spreadsheets',
   ]);
 
@@ -30,6 +34,106 @@ void main() async {
     final client = await authService.getAuthenticatedClient();
     AppLogger.i("🔐 Google OAuth 인증 성공!");
 
+    // =========================================================================
+    // 🔎 [CASE 0] Google Drive 스프레드시트 검색 진단 테스트
+    // =========================================================================
+    if (runSpreadsheetSearchTest) {
+      AppLogger.i("\n==================================================");
+      AppLogger.i("🔎 [TEST 0] Google Drive 스프레드시트 검색 진단 시작");
+      AppLogger.i("==================================================");
+
+      final driveApi = drive.DriveApi(client);
+      final driveSheetService = DriveSheetService(driveApi);
+
+      // ------------------------------------------------------------
+      // 0-1. 현재 계정에서 보이는 모든 스프레드시트 검색
+      // ------------------------------------------------------------
+      AppLogger.i("🔎 [전체 시트 검색] 시작");
+      AppLogger.i("🔎 Query: mimeType = 'application/vnd.google-apps.spreadsheet' and trashed = false");
+
+      int totalSpreadsheetCount = 0;
+      String? pageToken;
+
+      do {
+        final result = await driveApi.files.list(
+          q: "mimeType = 'application/vnd.google-apps.spreadsheet' and trashed = false",
+          spaces: 'drive',
+          corpora: 'user',
+          includeItemsFromAllDrives: true,
+          pageToken: pageToken,
+          $fields: 'nextPageToken,incompleteSearch,files(id,name,owners(emailAddress),sharingUser(emailAddress),driveId,shared,parents)',
+        );
+
+        final files = result.files ?? const <drive.File>[];
+        totalSpreadsheetCount += files.length;
+
+        AppLogger.i(
+          "🔎 [전체 시트 검색 Page] ${files.length}개, "
+          "incompleteSearch=${result.incompleteSearch == true}, "
+          "nextPage=${result.nextPageToken != null}",
+        );
+
+        for (final file in files) {
+          AppLogger.i(
+            "   ├─ name=${file.name}, id=${file.id}, "
+            "owners=${file.owners?.map((o) => o.emailAddress).toList()}, "
+            "sharingUser=${file.sharingUser?.emailAddress}, "
+            "driveId=${file.driveId}, shared=${file.shared}, "
+            "parents=${file.parents}",
+          );
+        }
+
+        pageToken = result.nextPageToken;
+      } while (pageToken != null);
+
+      AppLogger.i("🔎 [전체 시트 검색 완료] 총 $totalSpreadsheetCount개");
+
+      // ------------------------------------------------------------
+      // 0-2. '가계부' 이름을 포함하는 스프레드시트 검색
+      // ------------------------------------------------------------
+      AppLogger.i("🔎 ['가계부' 시트 검색] 시작");
+      const sheetQuery =
+          "name contains '가계부' and mimeType = 'application/vnd.google-apps.spreadsheet' and trashed = false";
+      AppLogger.i("🔎 Query: $sheetQuery");
+
+      final namedResult = await driveApi.files.list(
+        q: sheetQuery,
+        spaces: 'drive',
+        corpora: 'user',
+        includeItemsFromAllDrives: true,
+        $fields: 'files(id,name,owners(emailAddress),sharingUser(emailAddress),driveId,shared,parents)',
+      );
+
+      final namedFiles = namedResult.files ?? const <drive.File>[];
+      AppLogger.i("🔎 ['가계부' 시트 검색 결과] 총 ${namedFiles.length}개");
+      for (final file in namedFiles) {
+        AppLogger.i(
+          "   ├─ name=${file.name}, id=${file.id}, "
+          "owners=${file.owners?.map((o) => o.emailAddress).toList()}, "
+          "sharingUser=${file.sharingUser?.emailAddress}, "
+          "shared=${file.shared}, parents=${file.parents}",
+        );
+      }
+
+      // ------------------------------------------------------------
+      // 0-3. 기존 DriveSheetService의 폴더 내부 시트 검색 API 자체 확인
+      //      (현재 공유 폴더 ID를 알고 있다면 아래 ID를 넣어서 테스트 가능)
+      // ------------------------------------------------------------
+      const knownFolderId = '';
+      if (knownFolderId.isNotEmpty) {
+        AppLogger.i("🔎 [폴더 내부 시트 검색] Folder ID: $knownFolderId");
+        final folderSheets = await driveSheetService.getSpreadsheetsInFolder(
+          folderId: knownFolderId,
+        );
+        AppLogger.i("📊 [폴더 내부 시트 검색 결과] $folderSheets");
+      } else {
+        AppLogger.i("⏭️ [폴더 내부 시트 검색] Folder ID 미지정 → 건너뜁니다.");
+      }
+
+      AppLogger.i("🏁 [TEST 0] Google Drive 스프레드시트 검색 진단 완료");
+    } else {
+      AppLogger.i("⏭️ [TEST 0] Google Drive 스프레드시트 검색 테스트는 건너뜁니다. (runSpreadsheetSearchTest = false)");
+    }
 
     // 3. 연도별 가계부 시트 ID 자동 획득/설정
     final spreadsheetId = await sheetService.sheetSetupService
