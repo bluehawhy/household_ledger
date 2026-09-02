@@ -9,8 +9,6 @@ class GoogleAuthMobileService extends GoogleAuthService {
   late final GoogleSignIn _googleSignIn;
 
   GoogleAuthMobileService(this.scopes) : super(scopes) {
-    // 💡 iOS/Android 모두 별도의 clientId 전달 없이 기본 생성자로 초기화
-    // (ios/Runner/GoogleService-Info.plist 설정을 자동으로 참조합니다)
     _googleSignIn = GoogleSignIn(
       scopes: scopes,
     );
@@ -19,17 +17,18 @@ class GoogleAuthMobileService extends GoogleAuthService {
   @override
   GoogleSignInAccount? get currentUser => _googleSignIn.currentUser;
 
+  Stream<GoogleSignInAccount?> get onCurrentUserChanged =>
+      _googleSignIn.onCurrentUserChanged;
+
   /// 사용자가 로그인 버튼을 눌렀을 때 interactive Google 로그인을 수행한다.
   Future<GoogleSignInAccount?> signIn() async {
     return await _googleSignIn.signIn();
   }
 
-  // 💡 모바일 전용 Silent Sign-In 메서드
   Future<GoogleSignInAccount?> signInSilently() async {
     return await _googleSignIn.signInSilently();
   }
 
-  // 💡 모바일 로그아웃
   Future<void> signOut() async {
     await _googleSignIn.signOut();
   }
@@ -72,6 +71,10 @@ class GoogleAuthMobileService extends GoogleAuthService {
       rethrow;
     }
   }
+
+  Future<bool> canAccessScopes() async => true;
+
+  Future<bool> requestAuthorization() async => true;
 
   Future<bool> isSignedIn() async {
     return await _googleSignIn.isSignedIn();
