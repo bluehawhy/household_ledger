@@ -69,7 +69,7 @@ class DriveFolderService {
       throw Exception("폴더 '$folderName' 생성에는 성공했지만 ID를 받지 못했습니다.");
     }
 
-    AppLogger.i('  └ ✅ 폴더 생성 성공 (ID: $folderId)');
+    AppLogger.i('  └ ✅ 폴더 생성 성공 (폴더 ID: $folderId)');
     return folderId;
   }
 
@@ -102,6 +102,9 @@ class DriveFolderService {
 
   /// 나에게 공유된 특정 이름의 폴더 목록 조회
   ///
+  /// Drive API의 `sharedWithMe` 조건을 사용하여
+  /// 현재 로그인 계정의 '나에게 공유됨' 컬렉션에서 검색한다.
+  ///
   /// 반환:
   /// {
   ///   ownerEmail: {
@@ -117,44 +120,40 @@ class DriveFolderService {
     AppLogger.i("🔎 [공유 폴더 검색 시작] 폴더명: '$folderName'");
     AppLogger.i('🔎 [공유 폴더 검색 Query] $query');
     AppLogger.i(
-      '🔎 [공유 폴더 검색 옵션] supportsAllDrives=true, includeItemsFromAllDrives=true',
+      '🔎 [공유 폴더 검색 옵션] spaces=drive, sharedWithMe=true',
     );
 
     try {
       final result = await _driveApi.files.list(
         q: query,
+        spaces: 'drive',
         $fields:
             'files(id, name, mimeType, owners/emailAddress, sharingUser/emailAddress)',
-        supportsAllDrives: true,
-        includeItemsFromAllDrives: true,
       );
 
       final files = result.files ?? <drive.File>[];
 
-      AppLogger.i('🔎 [공유 폴더 검색 결과] 총 ${files.length}개');
+      AppLogger.i('🔎 [sharedWithMe 검색 결과] 총 ${files.length}개');
 
       if (files.isEmpty) {
         AppLogger.w(
-          "⚠️ [공유 폴더 검색 결과 없음] '$folderName' 폴더를 찾지 못했습니다.",
+          "⚠️ [sharedWithMe 검색 결과 없음] '$folderName' 폴더를 찾지 못했습니다.",
         );
 
-        // owner 조건을 제외한 진단 검색을 한 번 더 수행한다.
-        // 이 결과가 나오면 'not me in owners' 조건 또는 owner 메타데이터가
-        // 원인인지 바로 확인할 수 있다.
-        final diagnosticQuery = _buildSharedFolderDiagnosticQuery(folderName);
+        // 공유된 폴더 자체가 검색되는지 확인하기 위한 진단 검색.
+        final diagnosticQuery = _buildSharedFolderDiagnosticQuery();
         AppLogger.i('🔎 [공유 폴더 진단 Query] $diagnosticQuery');
 
         final diagnosticResult = await _driveApi.files.list(
           q: diagnosticQuery,
+          spaces: 'drive',
           $fields:
               'files(id, name, mimeType, owners/emailAddress, sharingUser/emailAddress)',
-          supportsAllDrives: true,
-          includeItemsFromAllDrives: true,
         );
 
         final diagnosticFiles = diagnosticResult.files ?? <drive.File>[];
         AppLogger.i(
-          '🔎 [공유 폴더 진단 검색 결과] 총 ${diagnosticFiles.length}개',
+          '🔎 [sharedWithMe 전체 폴더 진단 결과] 총 ${diagnosticFiles.length}개',
         );
 
         for (final file in diagnosticFiles) {
@@ -169,6 +168,7 @@ class DriveFolderService {
         for (final file in files) {
           AppLogger.i(
             '   ├─ 검색 파일: name=${file.name}, id=${file.id}, '
+            'mimeType=${file.mimeType}, '
             'owners=${file.owners?.map((owner) => owner.emailAddress).toList()}, '
             'sharingUser=${file.sharingUser?.emailAddress}',
           );
@@ -351,17 +351,20 @@ class DriveFolderService {
         "and 'root' in parents";
   }
 
-  /// 공유받은 폴더 검색 Query
+  /// 나에게 공유된 폴더 검색 Query
+  ///
+  /// Google Drive API에서 sharedWithMe는 현재 로그인 사용자에게
+  /// 공유된 파일/폴더를 명시적으로 검색할 수 있는 조건이다.
   String _buildSharedFolderQuery(String folderName) {
-    return "name = '$folderName' "
+    return "sharedWithMe "
+        "and name = '$folderName' "
         "and mimeType = '$_folderMimeType' "
-        'and trashed = false '
-        "and not 'me' in owners";
+        'and trashed = false';
   }
 
-  /// 공유 폴더 검색 조건을 제외한 진단용 Query
-  String _buildSharedFolderDiagnosticQuery(String folderName) {
-    return "name = '$folderName' "
+  /// 나에게 공유된 폴더 전체를 조회하는 진단용 Query
+  String _buildSharedFolderDiagnosticQuery() {
+    return "sharedWithMe "
         "and mimeType = '$_folderMimeType' "
         'and trashed = false';
   }
