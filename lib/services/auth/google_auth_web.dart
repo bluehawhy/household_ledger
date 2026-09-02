@@ -27,14 +27,10 @@ class GoogleAuthWebService implements GoogleAuthService {
   Stream<GoogleSignInAccount?> get onCurrentUserChanged =>
       _googleSignIn.onCurrentUserChanged;
 
-  /// 6.x 웹에서는 Google Identity Services가 렌더링한 버튼으로
-  /// interactive sign-in을 시작한다.
   Future<GoogleSignInAccount?> signIn() async {
     return await _googleSignIn.signIn();
   }
 
-  /// 웹의 인증(Authentication) 세션만 복원한다.
-  /// Drive/Sheets OAuth 권한(Authorization)은 별도로 확인한다.
   Future<GoogleSignInAccount?> signInSilently() async {
     try {
       return await _googleSignIn.signInSilently();
@@ -44,38 +40,43 @@ class GoogleAuthWebService implements GoogleAuthService {
     }
   }
 
-  /// 현재 인증된 계정이 요청된 Drive/Sheets scope를 사용할 수 있는지 확인한다.
   Future<bool> canAccessScopes() async {
     final account = _googleSignIn.currentUser;
     if (account == null) return false;
-    return await _googleSignIn.canAccessScopes(scopes);
+
+    try {
+      final result = await _googleSignIn.canAccessScopes(scopes);
+      AppLogger.i('[AUTH] Web API scope 권한 상태: $result');
+      return result;
+    } catch (e) {
+      AppLogger.i('[AUTH] Web API scope 권한 확인 실패: $e');
+      return false;
+    }
   }
 
-  /// Drive/Sheets OAuth 권한을 사용자 동작으로 요청한다.
   Future<bool> requestAuthorization() async {
     final account = _googleSignIn.currentUser;
     if (account == null) return false;
 
     try {
-      return await _googleSignIn.requestScopes(scopes);
+      final result = await _googleSignIn.requestScopes(scopes);
+      AppLogger.i('[AUTH] Web API scope 권한 요청 결과: $result');
+      return result;
     } catch (e) {
       AppLogger.i('❌ [Web Auth Error] Google API 권한 요청 실패: $e');
       return false;
     }
   }
 
-  /// 이미 인증(Authentication) + 권한(Authorization)이 완료된 상태에서
-  /// googleapis용 AuthClient를 생성한다.
-  ///
-  /// 이 메서드에서는 로그인/권한 요청을 수행하지 않는다.
-  /// 호출 전에 canAccessScopes() 또는 requestAuthorization()으로
-  /// API 권한 상태를 확인해야 한다.
   @override
   Future<AuthClient> getAuthenticatedClient() async {
     final account = _googleSignIn.currentUser;
-
     if (account == null) {
       throw Exception('Google 로그인 세션이 없습니다.');
+    }
+
+    if (!await canAccessScopes()) {
+      throw Exception('Google API 권한 승인이 필요합니다.');
     }
 
     try {
@@ -86,6 +87,7 @@ class GoogleAuthWebService implements GoogleAuthService {
       }
     } catch (e) {
       AppLogger.i('[AUTH] Google API 인증 클라이언트 생성 실패: $e');
+      rethrow;
     }
 
     throw Exception('Google API 인증 클라이언트를 생성하지 못했습니다.');
