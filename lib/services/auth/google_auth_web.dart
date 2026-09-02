@@ -23,6 +23,16 @@ class GoogleAuthWebService implements GoogleAuthService {
   @override
   GoogleSignInAccount? get currentUser => _googleSignIn.currentUser;
 
+  /// 사용자가 로그인 버튼을 눌렀을 때만 interactive Google 로그인 popup을 연다.
+  Future<GoogleSignInAccount?> signIn() async {
+    try {
+      return await _googleSignIn.signIn();
+    } catch (e) {
+      print('❌ [Web Auth Error] Google 로그인 실패: $e');
+      rethrow;
+    }
+  }
+
   Future<GoogleSignInAccount?> signInSilently() async {
     try {
       return await _googleSignIn.signInSilently();
