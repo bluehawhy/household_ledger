@@ -27,6 +27,7 @@ class OverviewPage extends StatefulWidget {
 }
 
 class _OverviewPageState extends State<OverviewPage> {
+  static const double overviewWideBreakpoint = 850;
   final PageController _pageController = PageController();
   int _currentPage = 0;
 
@@ -232,6 +233,7 @@ class _OverviewPageState extends State<OverviewPage> {
           items: filteredItems,
           isExpense: isExpense,
           client: client,
+          accountEmail: _currentSelectedEmail,
         ),
       ),
     );
@@ -312,7 +314,10 @@ class _OverviewPageState extends State<OverviewPage> {
                           size: 48,
                         ),
                         const SizedBox(height: 16),
-                        Text(_errorMessage!, textAlign: TextAlign.center),
+                        Text(
+                          _errorMessage!,
+                          textAlign: TextAlign.center,
+                        ),
                         const SizedBox(height: 16),
                         ElevatedButton(
                           onPressed: _loadMonthlyData,
@@ -324,66 +329,63 @@ class _OverviewPageState extends State<OverviewPage> {
                 )
               : RefreshIndicator(
                   onRefresh: _loadMonthlyData,
-                  child: Column(
-                    children: [
-                      Padding(
-                        padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 8.0),
-                        child: Align(
-                          alignment: Alignment.centerLeft,
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text(
-                                '안녕하세요, ${widget.googleUser.displayName ?? "사용자"}님!',
-                                style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
-                              ),
-                              const SizedBox(height: 4),
-                              Text(
-                                '기준 계정: $_currentSelectedEmail',
-                                style: const TextStyle(fontSize: 12, color: Colors.grey),
-                              ),
-                            ],
-                          ),
-                        ),
-                      ),
-                      Row(
-                        mainAxisAlignment: MainAxisAlignment.center,
+                  child: LayoutBuilder(
+                    builder: (context, constraints) {
+                      final bool showBoth =
+                          constraints.maxWidth >= overviewWideBreakpoint;
+
+                      return Column(
                         children: [
-                          _buildTabButton('지출', 0),
-                          const SizedBox(width: 16),
-                          _buildTabButton('수입', 1),
-                        ],
-                      ),
-                      const SizedBox(height: 10),
-                      Expanded(
-                        child: PageView(
-                          controller: _pageController,
-                          onPageChanged: (index) {
-                            setState(() {
-                              _currentPage = index;
-                            });
-                          },
-                          children: [
-                            _buildOverviewSection(
-                              title: '이번달 지출',
-                              totalAmount: _totalExpense,
-                              categoryData: _expenseCategories,
-                              methodData: _expenseMethods,
-                              colorScheme: Colors.redAccent,
-                              isExpense: true,
+                          Padding(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 16.0,
+                              vertical: 8.0,
                             ),
-                            _buildOverviewSection(
-                              title: '이번달 수입',
-                              totalAmount: _totalIncome,
-                              categoryData: _incomeCategories,
-                              methodData: null,
-                              colorScheme: Colors.blueAccent,
-                              isExpense: false,
+                            child: Align(
+                              alignment: Alignment.centerLeft,
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    '안녕하세요, ${widget.googleUser.displayName ?? "사용자"}님!',
+                                    style: const TextStyle(
+                                      fontSize: 18,
+                                      fontWeight: FontWeight.bold,
+                                    ),
+                                  ),
+                                  const SizedBox(height: 4),
+                                  Text(
+                                    '기준 계정: $_currentSelectedEmail',
+                                    style: const TextStyle(
+                                      fontSize: 12,
+                                      color: Colors.grey,
+                                    ),
+                                  ),
+                                ],
+                              ),
                             ),
+                          ),
+
+                          if (!showBoth) ...[
+                            Row(
+                              mainAxisAlignment: MainAxisAlignment.center,
+                              children: [
+                                _buildTabButton('지출', 0),
+                                const SizedBox(width: 16),
+                                _buildTabButton('수입', 1),
+                              ],
+                            ),
+                            const SizedBox(height: 10),
                           ],
-                        ),
-                      ),
-                    ],
+
+                          Expanded(
+                            child: showBoth
+                                ? _buildWideOverview()
+                                : _buildCompactOverview(),
+                          ),
+                        ],
+                      );
+                    },
                   ),
                 ),
       floatingActionButton: FloatingActionButton(
@@ -393,6 +395,69 @@ class _OverviewPageState extends State<OverviewPage> {
       ),
     );
   }
+
+  Widget _buildCompactOverview() {
+    return PageView(
+      controller: _pageController,
+      onPageChanged: (index) {
+        setState(() {
+          _currentPage = index;
+        });
+      },
+      children: [
+        _buildOverviewSection(
+          title: '이번달 지출',
+          totalAmount: _totalExpense,
+          categoryData: _expenseCategories,
+          methodData: _expenseMethods,
+          colorScheme: Colors.redAccent,
+          isExpense: true,
+        ),
+        _buildOverviewSection(
+          title: '이번달 수입',
+          totalAmount: _totalIncome,
+          categoryData: _incomeCategories,
+          methodData: null,
+          colorScheme: Colors.blueAccent,
+          isExpense: false,
+        ),
+      ],
+    );
+  }
+
+
+  Widget _buildWideOverview() {
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Expanded(
+          child: _buildOverviewSection(
+            title: '이번달 지출',
+            totalAmount: _totalExpense,
+            categoryData: _expenseCategories,
+            methodData: _expenseMethods,
+            colorScheme: Colors.redAccent,
+            isExpense: true,
+          ),
+        ),
+        const VerticalDivider(
+          width: 1,
+          thickness: 1,
+        ),
+        Expanded(
+          child: _buildOverviewSection(
+            title: '이번달 수입',
+            totalAmount: _totalIncome,
+            categoryData: _incomeCategories,
+            methodData: null,
+            colorScheme: Colors.blueAccent,
+            isExpense: false,
+          ),
+        ),
+      ],
+    );
+  }
+
 
   Widget _buildTabButton(String title, int pageIndex) {
     final isSelected = _currentPage == pageIndex;

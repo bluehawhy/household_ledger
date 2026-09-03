@@ -58,12 +58,14 @@ class LedgerDataService {
     required LedgerItem oldItem,
     required LedgerItem newItem,
     String? spreadsheetId,
+    String? accountEmail,
   }) {
     return _writeService.updateTransaction(
       client: client,
       oldItem: oldItem,
       newItem: newItem,
       spreadsheetId: spreadsheetId,
+      accountEmail: accountEmail,
     );
   }
 

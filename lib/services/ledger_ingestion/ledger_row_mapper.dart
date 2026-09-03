@@ -30,20 +30,60 @@ class LedgerRowMapper {
     ];
   }
 
+  /// 헤더 이름에 해당하는 [LedgerItem] 값을 반환한다.
+  static Object? valueForHeader(LedgerItem item, Object? header) {
+    final targetHeader = _normalizeHeader(header);
+    final defaultIndex = defaultHeader.indexWhere(
+      (value) => _normalizeHeader(value) == targetHeader,
+    );
+    if (defaultIndex == -1) return null;
+    return toRow(item)[defaultIndex];
+  }
+
+  /// 헤더 행에서 지정한 헤더의 실제 열 위치를 찾는다.
+  static int? indexOfHeader(List<dynamic> headers, String header) {
+    final targetHeader = _normalizeHeader(header);
+    final index = headers.indexWhere(
+      (value) => _normalizeHeader(value) == targetHeader,
+    );
+    return index == -1 ? null : index;
+  }
+
+  /// 0부터 시작하는 열 번호를 Google Sheets 열 이름으로 변환한다.
+  static String columnName(int columnIndex) {
+    var value = columnIndex + 1;
+    final buffer = StringBuffer();
+    while (value > 0) {
+      value--;
+      buffer.writeCharCode(65 + (value % 26));
+      value ~/= 26;
+    }
+    return buffer.toString().split('').reversed.join();
+  }
+
   /// Google Sheets 한 행을 [LedgerItem]으로 변환한다.
   ///
   /// 유효하지 않은 행은 null을 반환한다.
-  static LedgerItem? fromRow(List<dynamic> row) {
-    if (row.length <= 5) return null;
+  static LedgerItem? fromRow(
+    List<dynamic> row, {
+    List<dynamic>? headers,
+  }) {
+    String readValue(String header) {
+      final index = headers == null
+          ? defaultHeader.indexOf(header)
+          : indexOfHeader(headers, header);
+      if (index == null || index < 0 || index >= row.length) return '';
+      return row[index].toString().trim();
+    }
 
-    final rawDate = row[0].toString().trim();
-    final rawType = row[1].toString().trim();
-    final rawPayMethod = row[2].toString().trim();
-    final rawCategory = row[3].toString().trim();
-    final rawDescription = row[4].toString().trim();
-    final rawAmount = row[5].toString().replaceAll(',', '').trim();
-    final rawMemo = row.length > 6 ? row[6].toString().trim() : '';
-    final rawTxt = row.length > 7 ? row[7].toString().trim() : '';
+    final rawDate = readValue('날짜');
+    final rawType = readValue('거래유형');
+    final rawPayMethod = readValue('거래 수단');
+    final rawCategory = readValue('분류');
+    final rawDescription = readValue('내용');
+    final rawAmount = readValue('금액').replaceAll(',', '');
+    final rawMemo = readValue('메모');
+    final rawTxt = readValue('raw_txt');
 
     if (rawDate.isEmpty || rawAmount.isEmpty || rawDescription.isEmpty) {
       return null;
@@ -84,5 +124,13 @@ class LedgerRowMapper {
       range: range,
       values: [toRow(item)],
     );
+  }
+
+  static String _normalizeHeader(Object? value) {
+    return value
+        .toString()
+        .trim()
+        .toLowerCase()
+        .replaceAll(RegExp(r'[\s_]'), '');
   }
 }

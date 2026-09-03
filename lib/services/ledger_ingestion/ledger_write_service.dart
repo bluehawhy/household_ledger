@@ -84,6 +84,7 @@ class LedgerWriteService {
     required LedgerItem oldItem,
     required LedgerItem newItem,
     String? spreadsheetId,
+    String? accountEmail,
   }) async {
     AppLogger.i('[oldItem]: $oldItem');
     AppLogger.i('[newItem]: $newItem');
@@ -93,14 +94,14 @@ class LedgerWriteService {
       return false;
     }
 
-    await _ensureCategoryMapperLoaded();
-
     final sheetsApi = sheets.SheetsApi(client);
     final targetSpreadsheetId = spreadsheetId?.isNotEmpty == true
         ? spreadsheetId!
         : await sheetSetupService.setupLedgerSpreadsheetForYear(
             client,
             oldItem.date.year,
+            accountEmail: accountEmail,
+            createIfNotFound: accountEmail == null,
           );
 
     if (targetSpreadsheetId == null) {
@@ -108,9 +109,10 @@ class LedgerWriteService {
       return false;
     }
 
-    final updatedNewItem = _withResolvedCategory(newItem);
+    // 수정 화면에서 사용자가 선택한 분류를 자동 분류 결과로 덮어쓰지 않는다.
+    final updatedNewItem = newItem;
     final monthSheetName = '${oldItem.date.month}월';
-    final range = "'$monthSheetName'!A1:H1000";
+    final range = "'$monthSheetName'!1:1000";
 
     try {
       final response = await sheetsApi.spreadsheets.values.get(
@@ -118,7 +120,13 @@ class LedgerWriteService {
         range,
       );
       final rows = response.values ?? [];
-      final targetRowIndex = _findTransactionRow(rows, oldItem);
+      if (rows.isEmpty) {
+        AppLogger.i("⚠️ [$monthSheetName] 헤더 행을 찾을 수 없습니다.");
+        return false;
+      }
+
+      final headers = rows.first;
+      final targetRowIndex = _findTransactionRow(rows, headers, oldItem);
 
       if (targetRowIndex == -1) {
         AppLogger.i(
@@ -128,22 +136,43 @@ class LedgerWriteService {
         return false;
       }
 
-      final targetRange =
-          "'$monthSheetName'!A$targetRowIndex:G$targetRowIndex";
+      final updates = <sheets.ValueRange>[];
+      for (var columnIndex = 0; columnIndex < headers.length; columnIndex++) {
+        final value = LedgerRowMapper.valueForHeader(
+          updatedNewItem,
+          headers[columnIndex],
+        );
+        if (value == null) continue;
 
-      await sheetsApi.spreadsheets.values.update(
-        LedgerRowMapper.toValueRange(
-          range: targetRange,
-          item: updatedNewItem,
+        final columnName = LedgerRowMapper.columnName(columnIndex);
+        final cellRange =
+            "'$monthSheetName'!$columnName$targetRowIndex";
+        updates.add(
+          sheets.ValueRange(
+            range: cellRange,
+            values: [
+              [value],
+            ],
+          ),
+        );
+      }
+
+      if (updates.isEmpty) {
+        AppLogger.i("⚠️ [$monthSheetName] 수정 가능한 헤더를 찾을 수 없습니다.");
+        return false;
+      }
+
+      await sheetsApi.spreadsheets.values.batchUpdate(
+        sheets.BatchUpdateValuesRequest(
+          valueInputOption: 'USER_ENTERED',
+          data: updates,
         ),
         targetSpreadsheetId,
-        targetRange,
-        valueInputOption: 'USER_ENTERED',
       );
 
       AppLogger.i(
         '✅ [$monthSheetName] 내역 수정 완료! '
-        '(행: $targetRowIndex, 범위: $targetRange)',
+        '(행: $targetRowIndex, 수정 셀: ${updates.length}개)',
       );
       return true;
     } on sheets.DetailedApiRequestError catch (e) {
@@ -384,15 +413,28 @@ class LedgerWriteService {
 
   int _findTransactionRow(
     List<List<dynamic>> rows,
+    List<dynamic> headers,
     LedgerItem item,
   ) {
+    final dateIndex = LedgerRowMapper.indexOfHeader(headers, '날짜');
+    final descriptionIndex = LedgerRowMapper.indexOfHeader(headers, '내용');
+    final amountIndex = LedgerRowMapper.indexOfHeader(headers, '금액');
+    if (dateIndex == null || descriptionIndex == null || amountIndex == null) {
+      return -1;
+    }
+
     for (var i = 1; i < rows.length; i++) {
       final row = rows[i];
-      if (row.length <= 5) continue;
+      if (row.length <= dateIndex ||
+          row.length <= descriptionIndex ||
+          row.length <= amountIndex) {
+        continue;
+      }
 
-      final existingDate = row[0].toString().trim();
-      final existingDesc = row[4].toString().trim();
-      final existingAmount = row[5].toString().replaceAll(',', '').trim();
+      final existingDate = row[dateIndex].toString().trim();
+      final existingDesc = row[descriptionIndex].toString().trim();
+      final existingAmount =
+          row[amountIndex].toString().replaceAll(',', '').trim();
 
       if (existingDate == item.formattedDate.trim() &&
           existingDesc == item.description.trim() &&

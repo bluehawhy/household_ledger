@@ -10,6 +10,7 @@ class CategoryDetailUI extends StatefulWidget {
   final List<LedgerItem> items; // 💡 LedgerItem 객체 리스트로 타입 명시
   final bool isExpense;
   final AuthClient client;
+  final String accountEmail;
 
   const CategoryDetailUI({
     super.key,
@@ -17,6 +18,7 @@ class CategoryDetailUI extends StatefulWidget {
     required this.items,
     required this.isExpense,
     required this.client,
+    required this.accountEmail,
   });
 
   @override
@@ -139,6 +141,7 @@ class _CategoryDetailUIState extends State<CategoryDetailUI> {
                                       client: widget.client,
                                       oldItem: oldItem,
                                       newItem: newItem,
+                                      accountEmail: widget.accountEmail,
                                     );
                                   },
                                   onDelete: (item) {

@@ -85,7 +85,7 @@ class LedgerReadService {
     }
 
     final sheetName = '$month월';
-    final range = "'$sheetName'!A1:H1000";
+    final range = "'$sheetName'!1:1000";
 
     try {
       final response = await sheetsApi.spreadsheets.values.get(
@@ -97,9 +97,10 @@ class LedgerReadService {
       if (rows == null || rows.length <= 1) return [];
 
       final items = <LedgerItem>[];
+      final headers = rows.first;
 
       for (var i = 1; i < rows.length; i++) {
-        final item = LedgerRowMapper.fromRow(rows[i]);
+        final item = LedgerRowMapper.fromRow(rows[i], headers: headers);
         if (item != null) {
           items.add(item);
         }
