@@ -30,6 +30,16 @@ class LedgerRowMapper {
     ];
   }
 
+  /// 현재 시트의 헤더 순서에 맞춰 한 행을 생성한다.
+  static List<Object?> toRowForHeaders(
+    LedgerItem item,
+    List<dynamic> headers,
+  ) {
+    return headers
+        .map<Object?>((header) => valueForHeader(item, header) ?? '')
+        .toList();
+  }
+
   /// 헤더 이름에 해당하는 [LedgerItem] 값을 반환한다.
   static Object? valueForHeader(LedgerItem item, Object? header) {
     final targetHeader = _normalizeHeader(header);

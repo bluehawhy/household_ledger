@@ -1,4 +1,3 @@
-//overview_ui.dart
 import 'package:flutter/material.dart';
 import 'package:google_sign_in/google_sign_in.dart';
 import 'package:googleapis/drive/v3.dart' as drive;
@@ -37,6 +36,10 @@ class _OverviewPageState extends State<OverviewPage> {
   late String _currentSelectedEmail;
   final NumberFormat _currencyFormatter = NumberFormat('#,###');
 
+  // [추가] 현재 선택된 연/월 상태 관리
+  late int _selectedYear;
+  late int _selectedMonth;
+
   bool _isLoading = true;
   String? _errorMessage;
   bool _hasRestoredSelectedAccount = false;
@@ -55,6 +58,12 @@ class _OverviewPageState extends State<OverviewPage> {
   void initState() {
     super.initState();
     _currentSelectedEmail = widget.googleUser.email;
+
+    // 초기값으로 현재 연/월 설정
+    final now = DateTime.now();
+    _selectedYear = now.year;
+    _selectedMonth = now.month;
+
     _loadMonthlyData();
   }
 
@@ -64,8 +73,55 @@ class _OverviewPageState extends State<OverviewPage> {
     super.dispose();
   }
 
-  /// MainUI에서 Google 로그인 및 API 권한 처리가 완료된 상태를 전제로
-  /// 구글 시트에서 이번 달 통합 데이터를 불러오고 가공한다.
+  /// 이전 달로 이동
+  void _previousMonth() {
+    setState(() {
+      if (_selectedMonth == 1) {
+        _selectedYear--;
+        _selectedMonth = 12;
+      } else {
+        _selectedMonth--;
+      }
+    });
+    _loadMonthlyData();
+  }
+
+  /// 다음 달로 이동
+  void _nextMonth() {
+    setState(() {
+      if (_selectedMonth == 12) {
+        _selectedYear++;
+        _selectedMonth = 1;
+      } else {
+        _selectedMonth++;
+      }
+    });
+    _loadMonthlyData();
+  }
+
+  /// 연/월 직접 선택 다이얼로그
+  Future<void> _selectYearMonth() async {
+    final DateTime initialDate = DateTime(_selectedYear, _selectedMonth);
+    final DateTime? picked = await showDatePicker(
+      context: context,
+      initialDate: initialDate,
+      firstDate: DateTime(2020),
+      lastDate: DateTime(2035),
+      initialDatePickerMode: DatePickerMode.year,
+      helpText: '조회할 연/월을 선택하세요',
+    );
+
+    if (picked != null &&
+        (picked.year != _selectedYear || picked.month != _selectedMonth)) {
+      setState(() {
+        _selectedYear = picked.year;
+        _selectedMonth = picked.month;
+      });
+      _loadMonthlyData();
+    }
+  }
+
+  /// 선택된 연도와 월의 가계부 데이터를 구글 시트에서 불러온다.
   Future<void> _loadMonthlyData() async {
     if (!mounted) return;
 
@@ -75,18 +131,14 @@ class _OverviewPageState extends State<OverviewPage> {
     });
 
     try {
-      final now = DateTime.now();
-      final targetYear = now.year;
-      final targetMonth = now.month;
-
       final AuthClient client = await _authManager.getClient();
       await _restoreSelectedAccount(client);
 
+      // 선택된 _selectedYear와 _selectedMonth 전달
       final List<LedgerItem> totalItems = await _sheetService.getMonthlyLedger(
         client: client,
-        year: targetYear,
-        month: targetMonth,
-        // Overview는 로그인 계정이 아니라 저장된 가계부 기준 계정에서 조회한다.
+        year: _selectedYear,
+        month: _selectedMonth,
         accountEmail: _currentSelectedEmail,
       );
 
@@ -272,11 +324,36 @@ class _OverviewPageState extends State<OverviewPage> {
 
   @override
   Widget build(BuildContext context) {
-    final now = DateTime.now();
-
     return Scaffold(
       appBar: AppBar(
-        title: Text('우리 가계부 (${now.year}년 ${now.month}월)'),
+        // 상단 타이틀을 클릭 가능한 연/월 선택 위젯으로 변경
+        title: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            IconButton(
+              icon: const Icon(Icons.chevron_left),
+              tooltip: '이전 달',
+              onPressed: _previousMonth,
+            ),
+            InkWell(
+              onTap: _selectYearMonth,
+              borderRadius: BorderRadius.circular(8),
+              child: Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                child: Text(
+                  '$_selectedYear년 $_selectedMonth월',
+                  style: const TextStyle(fontWeight: FontWeight.bold),
+                ),
+              ),
+            ),
+            IconButton(
+              icon: const Icon(Icons.chevron_right),
+              tooltip: '다음 달',
+              onPressed: _nextMonth,
+            ),
+          ],
+        ),
+        centerTitle: true,
         actions: [
           IconButton(
             icon: const Icon(Icons.refresh),
@@ -291,13 +368,13 @@ class _OverviewPageState extends State<OverviewPage> {
         ],
       ),
       body: _isLoading
-          ? const Center(
+          ? Center(
               child: Column(
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
-                  CircularProgressIndicator(),
-                  SizedBox(height: 16),
-                  Text('이번 달 가계부 내역을 불러오는 중...'),
+                  const CircularProgressIndicator(),
+                  const SizedBox(height: 16),
+                  Text('$_selectedYear년 $_selectedMonth월 가계부 내역을 불러오는 중...'),
                 ],
               ),
             )
@@ -406,15 +483,15 @@ class _OverviewPageState extends State<OverviewPage> {
       },
       children: [
         _buildOverviewSection(
-          title: '이번달 지출',
+          title: '$_selectedMonth월 지출',
           totalAmount: _totalExpense,
           categoryData: _expenseCategories,
           methodData: _expenseMethods,
-          colorScheme: Colors.redAccent,
+          colorScheme: const Color.fromARGB(255, 82, 255, 128),
           isExpense: true,
         ),
         _buildOverviewSection(
-          title: '이번달 수입',
+          title: '$_selectedMonth월 수입',
           totalAmount: _totalIncome,
           categoryData: _incomeCategories,
           methodData: null,
@@ -425,14 +502,13 @@ class _OverviewPageState extends State<OverviewPage> {
     );
   }
 
-
   Widget _buildWideOverview() {
     return Row(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Expanded(
           child: _buildOverviewSection(
-            title: '이번달 지출',
+            title: '$_selectedMonth월 지출',
             totalAmount: _totalExpense,
             categoryData: _expenseCategories,
             methodData: _expenseMethods,
@@ -446,7 +522,7 @@ class _OverviewPageState extends State<OverviewPage> {
         ),
         Expanded(
           child: _buildOverviewSection(
-            title: '이번달 수입',
+            title: '$_selectedMonth월 수입',
             totalAmount: _totalIncome,
             categoryData: _incomeCategories,
             methodData: null,
@@ -457,7 +533,6 @@ class _OverviewPageState extends State<OverviewPage> {
       ],
     );
   }
-
 
   Widget _buildTabButton(String title, int pageIndex) {
     final isSelected = _currentPage == pageIndex;

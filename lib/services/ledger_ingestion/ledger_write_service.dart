@@ -225,7 +225,9 @@ class LedgerWriteService {
           continue;
         }
 
-        newRows.add(LedgerRowMapper.toRow(item));
+        newRows.add(
+          LedgerRowMapper.toRowForHeaders(item, existingRows.first),
+        );
         // 같은 배치 안의 중복도 차단한다.
         existingRows.add(newRows.last);
       }
@@ -237,7 +239,11 @@ class LedgerWriteService {
 
       final startRow = existingRows.length - newRows.length + 1;
       final endRow = startRow + newRows.length - 1;
-      final targetRange = "'$sheetName'!A$startRow:H$endRow";
+      final lastColumn = LedgerRowMapper.columnName(
+        existingRows.first.length - 1,
+      );
+      final targetRange =
+          "'$sheetName'!A$startRow:$lastColumn$endRow";
 
       await sheetsApi.spreadsheets.values.batchUpdate(
         sheets.BatchUpdateValuesRequest(
@@ -358,14 +364,25 @@ class LedgerWriteService {
       return false;
     }
 
+    if (existingRows.isEmpty || existingRows.first.isEmpty) {
+      AppLogger.i('❌ [$sheetName] 헤더 행을 찾을 수 없습니다.');
+      return false;
+    }
+
     final targetRow = existingRows.length + 1;
-    final targetRange = "'$sheetName'!A$targetRow:H$targetRow";
+    final lastColumn = LedgerRowMapper.columnName(
+      existingRows.first.length - 1,
+    );
+    final targetRange =
+        "'$sheetName'!A$targetRow:$lastColumn$targetRow";
 
     try {
       await sheetsApi.spreadsheets.values.update(
-        LedgerRowMapper.toValueRange(
+        sheets.ValueRange(
           range: targetRange,
-          item: item,
+          values: [
+            LedgerRowMapper.toRowForHeaders(item, existingRows.first),
+          ],
         ),
         spreadsheetId,
         targetRange,
@@ -403,7 +420,7 @@ class LedgerWriteService {
     String spreadsheetId,
     String sheetName,
   ) async {
-    final range = "'$sheetName'!A1:H1000";
+    final range = "'$sheetName'!1:1000";
     final response = await sheetsApi.spreadsheets.values.get(
       spreadsheetId,
       range,
@@ -487,17 +504,17 @@ class LedgerWriteService {
   bool _checkDuplicate(List<List<dynamic>> rows, LedgerItem item) {
     if (rows.length <= 1) return false;
 
+    final headers = rows.first;
+
     for (var i = 1; i < rows.length; i++) {
-      final row = rows[i];
-      if (row.length <= 5) continue;
-
-      final existingDate = row[0].toString().trim();
-      final existingDesc = row[4].toString().trim();
-      final existingAmount = row[5].toString().replaceAll(',', '').trim();
-
-      if (existingDate == item.formattedDate.trim() &&
-          existingDesc == item.description.trim() &&
-          existingAmount == item.amount.toString().trim()) {
+      final existingItem = LedgerRowMapper.fromRow(
+        rows[i],
+        headers: headers,
+      );
+      if (existingItem != null &&
+          existingItem.formattedDate == item.formattedDate &&
+          existingItem.description.trim() == item.description.trim() &&
+          existingItem.amount == item.amount) {
         return true;
       }
     }
