@@ -452,6 +452,12 @@ class _OverviewPageState extends State<OverviewPage> {
 
   @override
   Widget build(BuildContext context) {
+    final bool showBoth =
+        MediaQuery.sizeOf(context).width >= overviewWideBreakpoint;
+    final Color addEntryColor = showBoth || _currentPage == 0
+        ? Colors.redAccent
+        : const Color(0xFF6C9EEB);
+
     return Scaffold(
       appBar: AppBar(
         // 상단 타이틀을 클릭 가능한 연/월 선택 위젯으로 변경
@@ -596,7 +602,7 @@ class _OverviewPageState extends State<OverviewPage> {
       floatingActionButton: FloatingActionButton(
         onPressed: _navigateToIngestion,
         tooltip: '내역 추가',
-        backgroundColor: const Color(0xFF6C9EEB),
+        backgroundColor: addEntryColor,
         foregroundColor: Colors.white,
         child: const Icon(Icons.edit),
       ),
