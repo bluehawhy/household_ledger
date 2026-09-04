@@ -299,10 +299,10 @@ class _AnItemDetailUIState extends State<AnItemDetailUI> {
               }
             },
             child: InputDecorator(
-              decoration: const InputDecoration(
+              decoration: InputDecoration(
                 labelText: '날짜',
                 border: OutlineInputBorder(),
-                suffixIcon: Icon(Icons.calendar_today),
+                suffixIcon: Icon(Icons.calendar_today, color: themeColor),
               ),
               child: Text(_dateFormatter.format(_selectedDate)),
             ),
@@ -313,6 +313,7 @@ class _AnItemDetailUIState extends State<AnItemDetailUI> {
         // 2. 거래 유형 선택 (수입 / 지출)
         DropdownButtonFormField<String>(
           value: _isExpense ? '지출' : '수입',
+          iconEnabledColor: themeColor,
           decoration: const InputDecoration(
             labelText: '거래 유형',
             border: OutlineInputBorder(),
@@ -335,6 +336,7 @@ class _AnItemDetailUIState extends State<AnItemDetailUI> {
         // 3. 거래 수단 선택
         DropdownButtonFormField<String>(
           value: payMethodList.contains(_selectedPayMethod) ? _selectedPayMethod : null,
+          iconEnabledColor: themeColor,
           decoration: const InputDecoration(
             labelText: '거래 수단',
             border: OutlineInputBorder(),
@@ -350,6 +352,7 @@ class _AnItemDetailUIState extends State<AnItemDetailUI> {
         // 4. 분류 (카테고리) 선택
         DropdownButtonFormField<String>(
           value: categoryList.contains(_selectedCategory) ? _selectedCategory : null,
+          iconEnabledColor: themeColor,
           decoration: const InputDecoration(
             labelText: '분류',
             border: OutlineInputBorder(),
