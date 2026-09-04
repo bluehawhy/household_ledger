@@ -4,6 +4,7 @@ import 'package:googleapis/drive/v3.dart' as drive;
 import 'package:fl_chart/fl_chart.dart';
 import 'package:googleapis_auth/googleapis_auth.dart';
 import 'package:intl/intl.dart';
+import 'package:flutter/cupertino.dart';
 
 // 서비스 및 UI 클래스 임포트
 import 'package:household_ledger/services/auth/google_auth.dart';
@@ -99,27 +100,153 @@ class _OverviewPageState extends State<OverviewPage> {
     _loadMonthlyData();
   }
 
-  /// 연/월 직접 선택 다이얼로그
   Future<void> _selectYearMonth() async {
-    final DateTime initialDate = DateTime(_selectedYear, _selectedMonth);
-    final DateTime? picked = await showDatePicker(
-      context: context,
-      initialDate: initialDate,
-      firstDate: DateTime(2020),
-      lastDate: DateTime(2035),
-      initialDatePickerMode: DatePickerMode.year,
-      helpText: '조회할 연/월을 선택하세요',
+    const firstYear = 2020;
+    const lastYear = 2035;
+
+    int tempYear = _selectedYear;
+    int tempMonth = _selectedMonth;
+
+    final yearController = FixedExtentScrollController(
+      initialItem: _selectedYear - firstYear,
+    );
+    final monthController = FixedExtentScrollController(
+      initialItem: _selectedMonth - 1,
     );
 
-    if (picked != null &&
-        (picked.year != _selectedYear || picked.month != _selectedMonth)) {
-      setState(() {
-        _selectedYear = picked.year;
-        _selectedMonth = picked.month;
-      });
-      _loadMonthlyData();
-    }
+    await showModalBottomSheet(
+      context: context,
+      backgroundColor: Colors.transparent,
+      isScrollControlled: true,
+      builder: (bottomSheetContext) {
+        return StatefulBuilder(
+          builder: (context, setModalState) {
+            return Container(
+              padding: const EdgeInsets.fromLTRB(20, 10, 20, 24),
+              decoration: const BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+              ),
+              child: SafeArea(
+                top: false,
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Container(
+                      width: 32,
+                      height: 4,
+                      margin: const EdgeInsets.only(bottom: 18),
+                      decoration: BoxDecoration(
+                        color: Colors.grey.shade300,
+                        borderRadius: BorderRadius.circular(10),
+                      ),
+                    ),
+                    Text(
+                      '$tempYear년 $tempMonth월',
+                      style: const TextStyle(
+                        color: Color(0xFFFF6F6A),
+                        fontWeight: FontWeight.w700,
+                        fontSize: 15,
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                    SizedBox(
+                      height: 170,
+                      child: Row(
+                        children: [
+                          Expanded(
+                            child: CupertinoPicker(
+                              scrollController: yearController,
+                              itemExtent: 40,
+                              selectionOverlay: Container(
+                                decoration: BoxDecoration(
+                                  color: Colors.grey.withValues(alpha: 0.12),
+                                  borderRadius: BorderRadius.circular(10),
+                                ),
+                              ),
+                              onSelectedItemChanged: (index) {
+                                setModalState(() {
+                                  tempYear = firstYear + index;
+                                });
+                              },
+                              children: List.generate(
+                                lastYear - firstYear + 1,
+                                (index) => Center(
+                                  child: Text('${firstYear + index}년'),
+                                ),
+                              ),
+                            ),
+                          ),
+                          Expanded(
+                            child: CupertinoPicker(
+                              scrollController: monthController,
+                              itemExtent: 40,
+                              selectionOverlay: Container(
+                                decoration: BoxDecoration(
+                                  color: Colors.grey.withValues(alpha: 0.12),
+                                  borderRadius: BorderRadius.circular(10),
+                                ),
+                              ),
+                              onSelectedItemChanged: (index) {
+                                setModalState(() {
+                                  tempMonth = index + 1;
+                                });
+                              },
+                              children: List.generate(
+                                12,
+                                (index) => Center(
+                                  child: Text('${index + 1}월'),
+                                ),
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(height: 18),
+                    SizedBox(
+                      width: double.infinity,
+                      height: 52,
+                      child: FilledButton(
+                        style: FilledButton.styleFrom(
+                          backgroundColor: const Color(0xFFFF8179),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(11),
+                          ),
+                        ),
+                        onPressed: () {
+                          Navigator.pop(bottomSheetContext);
+
+                          if (tempYear != _selectedYear ||
+                              tempMonth != _selectedMonth) {
+                            setState(() {
+                              _selectedYear = tempYear;
+                              _selectedMonth = tempMonth;
+                            });
+                            _loadMonthlyData();
+                          }
+                        },
+                        child: Text(
+                          '$tempYear년 $tempMonth월 선택',
+                          style: const TextStyle(
+                            fontWeight: FontWeight.w700,
+                            fontSize: 15,
+                          ),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            );
+          },
+        );
+      },
+    );
+    yearController.dispose();
+    monthController.dispose();
   }
+
 
   /// 선택된 연도와 월의 가계부 데이터를 구글 시트에서 불러온다.
   Future<void> _loadMonthlyData() async {
