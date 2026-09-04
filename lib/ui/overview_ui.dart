@@ -596,6 +596,8 @@ class _OverviewPageState extends State<OverviewPage> {
       floatingActionButton: FloatingActionButton(
         onPressed: _navigateToIngestion,
         tooltip: '내역 추가',
+        backgroundColor: const Color(0xFF6C9EEB),
+        foregroundColor: Colors.white,
         child: const Icon(Icons.edit),
       ),
     );
