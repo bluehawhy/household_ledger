@@ -9,6 +9,7 @@ import 'package:flutter/cupertino.dart';
 // 서비스 및 UI 클래스 임포트
 import 'package:household_ledger/services/auth/google_auth.dart';
 import 'package:household_ledger/services/google_drive/google_drive_ledger_settings.dart';
+import 'package:household_ledger/ui/theme/app_theme.dart';
 import 'package:household_ledger/services/ledger_ingestion/ledger_item.dart';
 import 'package:household_ledger/services/ledger_ingestion/ledger_transaction_service.dart';
 
@@ -614,7 +615,7 @@ class _OverviewPageState extends State<OverviewPage> {
           totalAmount: _totalExpense,
           categoryData: _expenseCategories,
           methodData: _expenseMethods,
-          colorScheme: const Color.fromARGB(255, 82, 255, 128),
+          colorScheme: AppTheme.accent,
           isExpense: true,
         ),
         _buildOverviewSection(
@@ -622,7 +623,7 @@ class _OverviewPageState extends State<OverviewPage> {
           totalAmount: _totalIncome,
           categoryData: _incomeCategories,
           methodData: null,
-          colorScheme: Colors.blueAccent,
+          colorScheme: const Color(0xFF6C9EEB),
           isExpense: false,
         ),
       ],
@@ -639,7 +640,7 @@ class _OverviewPageState extends State<OverviewPage> {
             totalAmount: _totalExpense,
             categoryData: _expenseCategories,
             methodData: _expenseMethods,
-            colorScheme: Colors.redAccent,
+            colorScheme: AppTheme.accent,
             isExpense: true,
           ),
         ),
@@ -653,7 +654,7 @@ class _OverviewPageState extends State<OverviewPage> {
             totalAmount: _totalIncome,
             categoryData: _incomeCategories,
             methodData: null,
-            colorScheme: Colors.blueAccent,
+            colorScheme: const Color(0xFF6C9EEB),
             isExpense: false,
           ),
         ),
@@ -674,13 +675,13 @@ class _OverviewPageState extends State<OverviewPage> {
       child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
         decoration: BoxDecoration(
-          color: isSelected ? Theme.of(context).primaryColor : Colors.grey[200],
+          color: isSelected ? AppTheme.primary : const Color(0xFFF4EEEC),
           borderRadius: BorderRadius.circular(20),
         ),
         child: Text(
           title,
           style: TextStyle(
-            color: isSelected ? Colors.white : Colors.black87,
+            color: isSelected ? Colors.white : const Color(0xFF625C5A),
             fontWeight: FontWeight.bold,
           ),
         ),
@@ -705,15 +706,18 @@ class _OverviewPageState extends State<OverviewPage> {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Card(
-            elevation: 2,
-            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+            clipBehavior: Clip.antiAlias,
             child: Padding(
               padding: const EdgeInsets.all(16.0),
               child: Column(
                 children: [
                   Text(
                     '$title 차트',
-                    style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+                    style: const TextStyle(
+                      fontSize: 16,
+                      fontWeight: FontWeight.w700,
+                      color: Color(0xFF2D2928),
+                    ),
                   ),
                   const SizedBox(height: 16),
                   SizedBox(
@@ -733,10 +737,15 @@ class _OverviewPageState extends State<OverviewPage> {
           ),
           const SizedBox(height: 16),
           Card(
-            color: colorScheme.withOpacity(0.1),
-            elevation: 0,
+            color: colorScheme.withValues(alpha: 0.10),
+            clipBehavior: Clip.antiAlias,
             child: ListTile(
-              title: Text(title, style: const TextStyle(fontWeight: FontWeight.bold)),
+              title: Text(
+                title,
+                style: const TextStyle(
+                  fontWeight: FontWeight.w700,
+                  color: Color(0xFF2D2928),
+                ),
               trailing: Text(
                 '${_currencyFormatter.format(totalAmount)} 원',
                 style: TextStyle(
@@ -750,7 +759,11 @@ class _OverviewPageState extends State<OverviewPage> {
           const SizedBox(height: 16),
           const Text(
             '분류별 상세 (클릭시 세부 내역 이동)',
-            style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+            style: TextStyle(
+              fontSize: 16,
+              fontWeight: FontWeight.w700,
+              color: Color(0xFF2D2928),
+            ),
           ),
           const SizedBox(height: 8),
           if (hasCategoryData)
@@ -773,7 +786,11 @@ class _OverviewPageState extends State<OverviewPage> {
             const SizedBox(height: 20),
             const Text(
               '결제 수단별',
-              style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+              style: TextStyle(
+                fontSize: 16,
+                fontWeight: FontWeight.w700,
+                color: Color(0xFF2D2928),
+              ),
             ),
             const SizedBox(height: 8),
             if (methodData.isNotEmpty)
@@ -807,14 +824,21 @@ class _OverviewPageState extends State<OverviewPage> {
     return Container(
       margin: const EdgeInsets.only(bottom: 6),
       decoration: BoxDecoration(
-        color: Colors.grey[50],
-        borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: Colors.grey[200]!),
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: const Color(0xFFECE5E2)),
       ),
       child: ListTile(
         dense: true,
         onTap: onTap,
-        title: Text(name, style: const TextStyle(fontSize: 15)),
+        title: Text(
+          name,
+          style: const TextStyle(
+            fontSize: 15,
+            fontWeight: FontWeight.w600,
+            color: Color(0xFF2D2928),
+          ),
+        ),
         trailing: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
@@ -823,7 +847,7 @@ class _OverviewPageState extends State<OverviewPage> {
               style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w600),
             ),
             const SizedBox(width: 4),
-            const Icon(Icons.chevron_right, size: 18, color: Colors.grey),
+            const Icon(Icons.chevron_right, size: 18, color: Color(0xFFB8AEAB)),
           ],
         ),
       ),
