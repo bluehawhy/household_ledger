@@ -746,6 +746,7 @@ class _OverviewPageState extends State<OverviewPage> {
                   fontWeight: FontWeight.w700,
                   color: Color(0xFF2D2928),
                 ),
+              ),
               trailing: Text(
                 '${_currencyFormatter.format(totalAmount)} 원',
                 style: TextStyle(
