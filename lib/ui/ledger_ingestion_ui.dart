@@ -1,13 +1,13 @@
 // ledger_ingestion_ui.dart
 
 import 'package:flutter/material.dart';
-import 'package:google_sign_in/google_sign_in.dart';
+import 'package:household_ledger/services/auth/app_account.dart';
 import 'package:intl/intl.dart';
 import 'package:household_ledger/services/auth/google_auth.dart';
 import 'package:household_ledger/services/ledger_ingestion/ledger_ingestion_service.dart';
 
 class LedgerIngestionUI extends StatefulWidget {
-  final GoogleSignInAccount googleUser;
+  final AppAccount googleUser;
   final String accountEmail;
 
   const LedgerIngestionUI({

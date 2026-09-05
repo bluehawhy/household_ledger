@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import 'package:google_sign_in/google_sign_in.dart';
+import 'package:household_ledger/services/auth/app_account.dart';
 import 'package:googleapis/drive/v3.dart' as drive;
 import 'package:fl_chart/fl_chart.dart';
 import 'package:googleapis_auth/googleapis_auth.dart';
@@ -19,7 +19,7 @@ import 'package:household_ledger/ui/category_detail_ui.dart';
 import 'package:household_ledger/services/utils/app_logger.dart';
 
 class OverviewPage extends StatefulWidget {
-  final GoogleSignInAccount googleUser;
+  final AppAccount googleUser;
 
   const OverviewPage({super.key, required this.googleUser});
 

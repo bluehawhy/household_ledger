@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import 'package:google_sign_in/google_sign_in.dart';
+import 'package:household_ledger/services/auth/app_account.dart';
 import 'package:googleapis/drive/v3.dart' as drive;
 import 'package:household_ledger/services/auth/google_auth.dart';
 import 'package:household_ledger/services/google_drive/google_drive_cache.dart';
@@ -10,7 +10,7 @@ import 'package:household_ledger/ui/main_ui.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 class SettingUI extends StatefulWidget {
-  final GoogleSignInAccount googleUser;
+  final AppAccount googleUser;
   final LedgerCacheManager cacheManager;
   final String currentSelectedEmail;
   final ValueChanged<String> onAccountChanged;

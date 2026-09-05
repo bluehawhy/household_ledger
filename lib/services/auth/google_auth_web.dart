@@ -1,142 +1,319 @@
-// google_auth_web.dart
+import 'dart:async';
+import 'dart:convert';
 import 'package:google_sign_in/google_sign_in.dart';
-import 'package:googleapis_auth/auth_io.dart';
-import 'package:extension_google_sign_in_as_googleapis_auth/extension_google_sign_in_as_googleapis_auth.dart';
+import 'package:google_sign_in_platform_interface/google_sign_in_platform_interface.dart';
+import 'package:googleapis_auth/googleapis_auth.dart';
+import 'package:http/http.dart' as http;
 import 'package:household_ledger/services/utils/app_logger.dart';
+import 'app_account.dart';
 import 'google_auth_stub.dart';
+import 'web_account_store.dart';
+import 'web_token_store.dart';
 
-GoogleAuthService getGoogleAuthService(List<String> scopes) {
-  return GoogleAuthWebService(scopes);
-}
+class _InvalidWebToken implements Exception {}
+
+GoogleAuthWebService? _sharedService;
+GoogleAuthService getGoogleAuthService(List<String> scopes) =>
+    _sharedService ??= GoogleAuthWebService(scopes);
 
 class GoogleAuthWebService implements GoogleAuthService {
   @override
   final List<String> scopes;
+  final GoogleSignIn _googleSignIn;
+  final GoogleSignInPlatform _platform;
+  final WebAccountStore _store;
+  final WebTokenStore _tokenStore;
+  final DateTime Function() _now;
+  final http.Client Function() _httpClient;
+  final _changes = StreamController<AppAccount?>.broadcast();
+  late final StreamSubscription<GoogleSignInAccount?> _subscription;
+  AppAccount? _account;
+  AccessCredentials? _credentials;
+  Future<void> _writes = Future.value();
+  int _generation = 0;
+  bool _signingOut = false;
+  bool _restoreAttempted = false;
+  Future<bool>? _restoring;
 
-  static GoogleSignIn? _sharedGoogleSignIn;
-
-  GoogleAuthWebService(this.scopes) {
-    _sharedGoogleSignIn ??= GoogleSignIn(scopes: scopes);
+  GoogleAuthWebService(
+    this.scopes, {
+    GoogleSignIn? googleSignIn,
+    GoogleSignInPlatform? platform,
+    WebAccountStore? store,
+    WebTokenStore? tokenStore,
+    DateTime Function()? now,
+    http.Client Function()? httpClient,
+  }) : _googleSignIn = googleSignIn ?? GoogleSignIn(scopes: scopes),
+       _platform = platform ?? GoogleSignInPlatform.instance,
+       _store = store ?? WebAccountStore(),
+       _tokenStore = tokenStore ?? WebTokenStore(now: now),
+       _now = now ?? DateTime.now,
+       _httpClient = httpClient ?? http.Client.new {
+    _account = AppAccount.fromUser(_googleSignIn.currentUser);
+    _subscription = _googleSignIn.onCurrentUserChanged.listen((user) {
+      if (user == null || _signingOut) return;
+      unawaited(_remember(AppAccount.fromUser(user)!, _generation));
+    });
   }
-
-  GoogleSignIn get _googleSignIn => _sharedGoogleSignIn!;
 
   @override
-  GoogleSignInAccount? get currentUser => _googleSignIn.currentUser;
+  AppAccount? get currentUser => _account;
+  Stream<AppAccount?> get onCurrentUserChanged => _changes.stream;
 
-  Stream<GoogleSignInAccount?> get onCurrentUserChanged =>
-      _googleSignIn.onCurrentUserChanged;
-
-  Future<GoogleSignInAccount?> signIn() async {
-    return await _googleSignIn.signIn();
+  Future<void> _remember(AppAccount account, int generation) async {
+    if (generation != _generation || _signingOut) return;
+    if (_account?.id != account.id) {
+      _credentials = null;
+      _tokenStore.clear();
+      _restoreAttempted = false;
+    }
+    _account = account;
+    // Serialize persistence against logout, including events arriving mid-write.
+    _writes = _writes.then((_) => _store.save(account)).catchError((
+      Object error,
+    ) {
+      AppLogger.i('[AUTH] 계정 기억 저장 실패: ${error.runtimeType}');
+    });
+    await _writes;
+    if (generation == _generation && !_signingOut) _changes.add(account);
   }
 
-  Future<GoogleSignInAccount?> signInSilently() async {
+  Future<AppAccount?> signIn() async {
+    final generation = _generation;
+    final user = await _googleSignIn.signIn();
+    if (user != null) await _remember(AppAccount.fromUser(user)!, generation);
+    return _account;
+  }
+
+  Future<AppAccount?> signInSilently() async {
+    final generation = _generation;
+    // Restore app identity first; the separate API grant is validated on demand.
+    await _writes;
+    AppAccount? remembered;
     try {
-      return await _googleSignIn.signInSilently();
-    } catch (e) {
-      AppLogger.i('❌ [Web Auth Error] 자동 로그인 복원 실패: $e');
-      return null;
+      if (await _store.isLoggedOut()) {
+        _tokenStore.clear();
+        return null;
+      }
+      remembered = await _store.read();
+    } catch (error) {
+      AppLogger.i('[AUTH] 저장된 계정 읽기 실패: ${error.runtimeType}');
     }
+    if (generation != _generation || _signingOut) return null;
+    if (remembered != null) {
+      if (_account?.id != remembered.id) {
+        _credentials = null;
+        _restoreAttempted = false;
+      }
+      _account = remembered;
+      return remembered;
+    }
+    try {
+      final user = await _googleSignIn.signInSilently();
+      if (user != null) await _remember(AppAccount.fromUser(user)!, generation);
+    } catch (error) {
+      AppLogger.i('[AUTH] Google 자동 로그인 복원 실패: ${error.runtimeType}');
+    }
+    return _account;
   }
 
   Future<void> signOut() async {
+    _generation++;
+    _signingOut = true;
+    _account = null;
+    _credentials = null;
+    _tokenStore.clear();
+    _restoreAttempted = false;
     try {
-      await _googleSignIn.disconnect();
-    } catch (_) {
+      _writes = _writes.then((_) => _store.clear());
+      await _writes;
+      // Signing out must not revoke the user's existing Drive/Sheets consent.
       await _googleSignIn.signOut();
+    } finally {
+      _changes.add(null);
+      _signingOut = false;
     }
   }
 
   Future<bool> canAccessScopes() async {
-    final account = _googleSignIn.currentUser;
-    if (account == null) return false;
-
+    if (_account == null || _signingOut) return false;
+    if (_credentials != null) {
+      if (_credentials!.accessToken.expiry.isAfter(_now().toUtc())) return true;
+      _credentials = null;
+      _tokenStore.clear();
+    }
+    if (_restoreAttempted) return false;
+    // GIS's canAccessScopes compares against its own in-memory token response,
+    // which is empty after reload. Validate the cached token with Google instead.
+    if (_restoring != null) return _restoring!;
+    final pending = _restoreToken();
+    _restoring = pending;
     try {
-      final result = await _googleSignIn.canAccessScopes(scopes);
-      AppLogger.i('[AUTH] Web API scope 권한 상태: $result');
-      return result;
-    } catch (e) {
-      AppLogger.i('[AUTH] Web API scope 권한 확인 실패: $e');
+      return await pending;
+    } finally {
+      if (identical(_restoring, pending)) _restoring = null;
+    }
+  }
+
+  Future<({String accountId, DateTime expiry})> _inspectToken(
+    String token,
+  ) async {
+    final startedAt = _now().toUtc();
+    final client = _httpClient();
+    try {
+      final response = await client
+          .get(
+            Uri.https('oauth2.googleapis.com', '/tokeninfo', {
+              'access_token': token,
+            }),
+          )
+          .timeout(const Duration(seconds: 15));
+      if (response.statusCode == 400 || response.statusCode == 401) {
+        throw _InvalidWebToken();
+      }
+      if (response.statusCode != 200) {
+        throw StateError('Google 권한 확인에 일시적으로 실패했습니다. 다시 시도해 주세요.');
+      }
+      final data = jsonDecode(response.body) as Map<String, dynamic>;
+      final seconds = int.tryParse('${data['expires_in']}') ?? 0;
+      final granted = (data['scope'] as String? ?? '').split(' ').toSet();
+      if (seconds <= 30 ||
+          data['sub'] is! String ||
+          _tokenStore.clientId == null ||
+          data['aud'] != _tokenStore.clientId ||
+          !granted.containsAll(scopes)) {
+        throw _InvalidWebToken();
+      }
+      // Account for request latency and clock changes; never infer a fresh hour
+      // from a page reload. Google's remaining lifetime is authoritative.
+      final lifetime = seconds > 3600 ? 3600 : seconds;
+      return (
+        accountId: data['sub'] as String,
+        expiry: startedAt.add(Duration(seconds: lifetime - 30)),
+      );
+    } on _InvalidWebToken {
+      rethrow;
+    } catch (_) {
+      // ClientException may include a URL containing the token. Never pass it
+      // through to the UI/logger.
+      throw StateError('Google 권한 확인에 일시적으로 실패했습니다. 다시 시도해 주세요.');
+    } finally {
+      client.close();
+    }
+  }
+
+  Future<bool> _restoreToken() async {
+    final generation = _generation;
+    final accountId = _account!.id;
+    final cached = _tokenStore.read(accountId);
+    if (cached == null) {
+      _restoreAttempted = true;
       return false;
     }
-  }
-
-  /// 새로고침 후 기존 Google API 인증 상태를 최대한 자동으로 복원한다.
-  ///
-  /// 1. 현재 Google 계정의 API scope 승인 상태를 확인한다.
-  /// 2. 승인 상태가 확인되면 기존 OAuth client/token 획득을 시도한다.
-  /// 3. Web의 새 browsing session에서는 canAccessScopes()가 false일 수 있으므로,
-  ///    false여도 authenticatedClient()를 한 번 더 시도한다.
-  /// 4. 자동 획득이 실패하면 호출자가 사용자 동작으로 requestScopes()를 수행한다.
-  ///
-  /// requestScopes()는 브라우저 사용자 제스처가 필요할 수 있으므로 여기서는 호출하지 않는다.
-  Future<AuthClient?> restoreAuthorizedClient() async {
-    final account = _googleSignIn.currentUser;
-    if (account == null) {
-      AppLogger.i('[AUTH] Web API 자동 복원: Google 계정 없음');
-      return null;
-    }
-
     try {
-      final authorized = await canAccessScopes();
-      AppLogger.i('[AUTH] Web API 기존 scope 승인 상태 확인: $authorized');
-
-      if (authorized) {
-        final client = await _googleSignIn.authenticatedClient();
-        if (client != null) {
-          AppLogger.i('[AUTH] Web Google API 인증 클라이언트 자동 복원 성공');
-          return client;
-        }
+      final verified = await _inspectToken(cached.token);
+      if (generation != _generation || _account?.id != accountId) return false;
+      if (verified.accountId != accountId) throw _InvalidWebToken();
+      final expiry = verified.expiry.isBefore(cached.expiresAt)
+          ? verified.expiry
+          : cached.expiresAt;
+      _credentials = AccessCredentials(
+        AccessToken('Bearer', cached.token, expiry),
+        null,
+        scopes,
+      );
+      _tokenStore.save(CachedWebToken(accountId, cached.token, expiry));
+      _restoreAttempted = true;
+      return true;
+    } on _InvalidWebToken {
+      if (generation == _generation && _account?.id == accountId) {
+        _tokenStore.clear();
+        _restoreAttempted = true;
       }
-
-      // 새 browsing session에서는 canAccessScopes()가 false여도
-      // Google이 기존 승인 상태를 바탕으로 OAuth client/token을 제공할 수 있다.
-      AppLogger.i('[AUTH] scope 상태와 관계없이 기존 OAuth client/token 자동 획득 재시도');
-      final client = await _googleSignIn.authenticatedClient();
-      if (client != null) {
-        AppLogger.i('[AUTH] Web Google API 인증 클라이언트 자동 복원 성공');
-        return client;
-      }
-    } catch (e) {
-      AppLogger.i('[AUTH] Web Google API 인증 클라이언트 자동 복원 실패: $e');
+      return false;
     }
-
-    return null;
+    // Network/5xx failures propagate to the retry screen, preserving the cache.
   }
+
+  Future<AuthClient?> restoreAuthorizedClient() async =>
+      await canAccessScopes() ? getAuthenticatedClient() : null;
 
   Future<bool> requestAuthorization() async {
-    final account = _googleSignIn.currentUser;
-    if (account == null) return false;
-
+    if (_account == null) return false;
+    final generation = ++_generation;
+    _restoring = null;
+    _credentials = null;
+    _tokenStore.clear();
+    _restoreAttempted = true;
     try {
-      final result = await _googleSignIn.requestScopes(scopes);
-      AppLogger.i('[AUTH] Web API scope 권한 요청 결과: $result');
-      return result;
-    } catch (e) {
-      AppLogger.i('❌ [Web Auth Error] Google API 권한 요청 실패: $e');
+      // A remembered profile is not an SDK login. requestScopes works without
+      // currentUser; getTokens reads only the fresh, in-memory GIS response.
+      final granted = await _googleSignIn.requestScopes([
+        ...scopes,
+        'openid',
+        'email',
+        'profile',
+      ]);
+      if (!granted || generation != _generation) return false;
+      final token = (await _platform.getTokens(
+        email: _account!.email,
+      )).accessToken;
+      if (token == null) return false;
+      final tokenInfo = await _inspectToken(token);
+      final client = _httpClient();
+      late AppAccount verified;
+      try {
+        final response = await client.get(
+          Uri.parse('https://openidconnect.googleapis.com/v1/userinfo'),
+          headers: {'Authorization': 'Bearer $token'},
+        );
+        if (response.statusCode != 200) return false;
+        final data = jsonDecode(response.body) as Map<String, dynamic>;
+        if (data['email_verified'] != true ||
+            data['sub'] is! String ||
+            data['email'] is! String) {
+          return false;
+        }
+        verified = AppAccount(
+          id: data['sub'] as String,
+          email: data['email'] as String,
+          displayName: data['name'] as String?,
+          photoUrl: data['picture'] as String?,
+        );
+      } finally {
+        client.close();
+      }
+      if (generation != _generation) return false;
+      if (tokenInfo.accountId != verified.id) return false;
+      // The user may choose a different account in Google's authorization popup.
+      // Use Google's verified identity, never the cached email, for the ledger.
+      await _remember(verified, generation);
+      if (generation != _generation) return false;
+      _credentials = AccessCredentials(
+        AccessToken('Bearer', token, tokenInfo.expiry),
+        null,
+        scopes,
+      );
+      _tokenStore.save(CachedWebToken(verified.id, token, tokenInfo.expiry));
+      _restoreAttempted = true;
+      return true;
+    } catch (error) {
+      AppLogger.i('[AUTH] Google API 권한 연결 실패: ${error.runtimeType}');
       return false;
     }
   }
 
   @override
   Future<AuthClient> getAuthenticatedClient() async {
-    final account = _googleSignIn.currentUser;
-    if (account == null) {
-      throw Exception('Google 로그인 세션이 없습니다.');
+    if (!await canAccessScopes()) {
+      throw StateError('Google Drive와 Sheets 권한 연결이 필요합니다.');
     }
+    return authenticatedClient(_httpClient(), _credentials!);
+  }
 
-    final authorized = await canAccessScopes();
-    if (!authorized) {
-      throw Exception('Google API 권한 승인이 필요합니다.');
-    }
-
-    final client = await _googleSignIn.authenticatedClient();
-    if (client != null) {
-      AppLogger.i('[AUTH] Google API 인증 클라이언트 생성 성공');
-      return client;
-    }
-
-    throw Exception('Google API 인증 클라이언트를 생성하지 못했습니다.');
+  Future<void> dispose() async {
+    await _subscription.cancel();
+    await _writes;
+    await _changes.close();
   }
 }

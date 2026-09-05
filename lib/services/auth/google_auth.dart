@@ -3,6 +3,8 @@
 import 'package:googleapis/drive/v3.dart' as drive;
 import 'package:googleapis/sheets/v4.dart' as sheets;
 import 'package:googleapis_auth/auth_io.dart';
+import 'app_account.dart';
+import 'package:flutter/foundation.dart';
 
 import 'google_auth_stub.dart' hide getGoogleAuthService;
 import 'google_auth_stub.dart'
@@ -19,13 +21,14 @@ class GoogleAuthManager {
 
   final GoogleAuthService _authService = getGoogleAuthService(defaultScopes);
 
-  dynamic get currentUser => _authService.currentUser;
+  AppAccount? get currentUser => AppAccount.fromUser(_authService.currentUser);
 
   Stream<dynamic> get onCurrentUserChanged =>
-      (_authService as dynamic).onCurrentUserChanged;
+      ((_authService as dynamic).onCurrentUserChanged as Stream<dynamic>)
+          .map(AppAccount.fromUser);
 
   Future<dynamic> signIn() async {
-    return await (_authService as dynamic).signIn();
+    return AppAccount.fromUser(await (_authService as dynamic).signIn());
   }
 
   Future<AuthClient> getClient() async {
@@ -34,7 +37,7 @@ class GoogleAuthManager {
 
   Future<dynamic> signInSilently() async {
     try {
-      return await (_authService as dynamic).signInSilently();
+      return AppAccount.fromUser(await (_authService as dynamic).signInSilently());
     } catch (_) {
       return currentUser;
     }
@@ -47,6 +50,7 @@ class GoogleAuthManager {
       final result = await (_authService as dynamic).restoreAuthorizedClient();
       return result is AuthClient ? result : null;
     } catch (_) {
+      if (kIsWeb) rethrow;
       return null;
     }
   }
@@ -56,6 +60,7 @@ class GoogleAuthManager {
     try {
       return await (_authService as dynamic).canAccessScopes();
     } catch (_) {
+      if (kIsWeb) rethrow;
       return false;
     }
   }

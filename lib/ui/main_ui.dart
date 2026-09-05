@@ -9,10 +9,12 @@ import 'package:household_ledger/services/utils/app_logger.dart';
 
 class MainUI extends StatefulWidget {
   final bool skipSessionRestore;
+  final GoogleAuthManager? authManager;
 
   const MainUI({
     super.key,
     this.skipSessionRestore = false,
+    this.authManager,
   });
 
   @override
@@ -27,12 +29,13 @@ class _MainUIState extends State<MainUI> {
   bool _sessionRestoreDisabled = false;
   String? _errorMessage;
 
-  final GoogleAuthManager _authManager = GoogleAuthManager();
+  late final GoogleAuthManager _authManager;
   StreamSubscription<dynamic>? _accountSubscription;
 
   @override
   void initState() {
     super.initState();
+    _authManager = widget.authManager ?? GoogleAuthManager();
     AppLogger.i('[AUTH] MainUI initState()');
     _sessionRestoreDisabled = widget.skipSessionRestore;
 
@@ -81,6 +84,12 @@ class _MainUIState extends State<MainUI> {
 
     _authFlowInProgress = true;
     AppLogger.i('[AUTH] _checkSignInState() 시작');
+    if (mounted) {
+      setState(() {
+        _isLoading = true;
+        _errorMessage = null;
+      });
+    }
 
     try {
       final preferences = await SharedPreferences.getInstance();
@@ -267,6 +276,25 @@ class _MainUIState extends State<MainUI> {
     AppLogger.i('[AUTH] SharedPreferences is_logged_in=$value 저장 완료');
   }
 
+  Future<void> _changeLoginAccount() async {
+    if (_authFlowInProgress) return;
+    _authFlowInProgress = true;
+    setState(() => _isLoading = true);
+    try {
+      await _authManager.signOut();
+      await _saveLoggedInState(false);
+      if (!mounted) return;
+      setState(() {
+        _sessionRestoreDisabled = true;
+        _authorizationRequired = false;
+        _errorMessage = null;
+      });
+    } finally {
+      _authFlowInProgress = false;
+      if (mounted) setState(() => _isLoading = false);
+    }
+  }
+
   void _navigateToOverview(dynamic account) {
     AppLogger.i('[AUTH] Navigator.pushReplacement → OverviewPage');
     Navigator.of(context).pushReplacement(
@@ -309,6 +337,12 @@ class _MainUIState extends State<MainUI> {
                         ),
                         const SizedBox(height: 16),
                         Text(
+                          _authManager.currentUser?.email ?? '',
+                          style: Theme.of(context).textTheme.titleMedium,
+                          textAlign: TextAlign.center,
+                        ),
+                        const SizedBox(height: 8),
+                        Text(
                           _errorMessage ?? 'Google Drive와 Sheets 접근 권한이 필요합니다.',
                           textAlign: TextAlign.center,
                         ),
@@ -317,6 +351,11 @@ class _MainUIState extends State<MainUI> {
                           onPressed: _handleAuthorizeScopes,
                           icon: const Icon(Icons.verified_user_outlined),
                           label: const Text('Google Drive / Sheets 권한 연결'),
+                        ),
+                        const SizedBox(height: 12),
+                        TextButton(
+                          onPressed: _changeLoginAccount,
+                          child: const Text('로그아웃 / 다른 계정으로 로그인'),
                         ),
                       ],
                     ),
