@@ -1,0 +1,188 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="우리가계부의 개인정보 처리 항목, 이용 목적, Google 연동 및 데이터 삭제 방법을 안내합니다.">
+  <title>우리가계부 개인정보처리방침</title>
+  <script>
+    // 게시 전 아래 세 값을 실제 정보로 입력하세요.
+    // 시행일 예: "2026년 9월 8일" — 실제 적용 날짜를 입력합니다.
+    const PRIVACY_POLICY = Object.freeze({
+      effectiveDate: "",
+      operator: "",
+      email: ""
+    });
+
+    // 본문은 HTML로 유지하고 반복되는 정보만 안전하게 치환합니다.
+    document.addEventListener("DOMContentLoaded", () => {
+      document.querySelectorAll("[data-policy]").forEach((element) => {
+        const value = PRIVACY_POLICY[element.dataset.policy]?.trim();
+        if (value) element.textContent = value;
+      });
+    });
+  </script>
+  <!--
+    공개 방법: 이 HTML 파일을 정적 웹 호스팅에 올리고 공개 URL을
+    Play Console 및 앱 내 개인정보처리방침 메뉴에 연결합니다.
+    외부 라이브러리, 폰트, 분석 도구 없이 파일 하나로 동작합니다.
+    JavaScript를 실행하지 않는 환경에도 완성된 운영자 정보를 제공하려면,
+    게시할 때 본문의 [시행일 입력 필요], [운영자명 입력 필요],
+    [문의 이메일 입력 필요]도 같은 실제 값으로 교체하세요.
+    배포할 앱과 본문의 처리 방식이 일치하는지 확인하세요.
+  -->
+  <style>
+    :root { color-scheme: light; font-family: system-ui, -apple-system, "Segoe UI", sans-serif; color: #25332e; background: #f4f7f5; }
+    * { box-sizing: border-box; }
+    body { margin: 0; line-height: 1.85; overflow-wrap: anywhere; }
+    main { max-width: 920px; margin: 40px auto; padding: 48px; background: #fff; border: 1px solid #dfe7e2; border-radius: 16px; }
+    h1 { margin: 0 0 28px; font-size: clamp(1.7rem, 5vw, 2.2rem); line-height: 1.4; letter-spacing: -.04em; color: #173d30; }
+    h2 { margin: 40px 0 16px; padding-top: 24px; border-top: 1px solid #e4ebe7; font-size: 1.25rem; line-height: 1.5; color: #173d30; }
+    p { margin: 16px 0; }
+    ul, ol { padding-left: 1.5rem; }
+    li { margin: 8px 0; }
+    a { color: #176b4b; text-underline-offset: 3px; }
+    a:focus-visible, .table-scroll:focus-visible { outline: 3px solid #176b4b; outline-offset: 4px; }
+    .table-scroll { overflow-x: auto; margin: 20px 0; }
+    table { width: 100%; border-collapse: collapse; font-size: .94rem; }
+    th, td { padding: 14px; border: 1px solid #dfe7e2; text-align: left; vertical-align: top; min-width: 110px; }
+    th { background: #edf5f0; font-weight: 650; }
+    @media (max-width: 600px) {
+      main { margin: 0; padding: 28px 20px; border: 0; border-radius: 0; }
+      th, td { padding: 10px; }
+    }
+    @media print {
+      :root { background: #fff; color: #000; }
+      main { max-width: none; margin: 0; padding: 0; border: 0; }
+      h2 { break-after: avoid; }
+      tr { break-inside: avoid; }
+      .table-scroll { overflow: visible; }
+    }
+  </style>
+</head>
+<body>
+  <main>
+    <article aria-label="우리가계부 개인정보처리방침">
+<h1>우리가계부 개인정보처리방침</h1>
+<ul>
+<li>시행일: <span data-policy="effectiveDate">[시행일 입력 필요]</span></li>
+<li>운영자: <span data-policy="operator">[운영자명 입력 필요]</span></li>
+<li>개인정보 관련 문의: <span data-policy="email">[문의 이메일 입력 필요]</span></li>
+</ul>
+<p><span data-policy="operator">[운영자명 입력 필요]</span>(이하 “운영자”)은 우리가계부(이하 “앱”)를 제공하면서 처리하는 개인정보의 항목, 목적, 저장 위치 및 삭제 방법을 다음과 같이 안내합니다. 이 방침은 Google Play를 통해 제공되는 우리가계부 Android 앱에 적용됩니다.</p>
+<h2>1. 개인정보 처리 방식</h2>
+<p>앱은 Google 계정으로 로그인하고, 사용자가 권한을 부여한 Google Drive 및 Google Sheets에 연결하여 가계부를 저장&#183;조회&#183;수정합니다. 사용자가 공유받은 가계부도 부여된 권한 범위에서 이용할 수 있습니다.</p>
+<p>가계부의 원본은 연결된 Google Drive 및 Google Sheets에 저장됩니다. 앱은 가계부 원본을 운영자의 별도 서버로 전송하거나 저장하지 않습니다. 다만 Google 로그인과 가계부 연동 과정에서 필요한 정보가 기기와 Google 서비스 사이에 전송되므로, 모든 정보가 기기 안에서만 처리되는 앱은 아닙니다.</p>
+<h2>2. 처리하는 정보와 이용 목적</h2>
+<div class="table-scroll" role="region" aria-label="개인정보 처리 상세 표" tabindex="0"><table>
+<thead><tr>
+<th scope="col">구분</th>
+<th scope="col">처리하는 정보</th>
+<th scope="col">이용 목적</th>
+</tr></thead><tbody>
+<tr>
+<td>Google 계정 정보</td>
+<td>이메일 주소, 표시 이름, 프로필 이미지 주소 등 Google 로그인으로 제공되는 정보</td>
+<td>로그인한 계정 확인, 계정 정보 표시, 가계부 연결</td>
+</tr>
+<tr>
+<td>인증 정보</td>
+<td>Google 로그인 세션 및 API 접근 토큰 등</td>
+<td>사용자가 허용한 Google 서비스에 접근하고 로그인 상태 유지</td>
+</tr>
+<tr>
+<td>가계부 정보</td>
+<td>거래 날짜, 수입&#183;지출 구분, 금액, 분류, 결제 수단, 거래 내용, 메모, 입력 원문 등 사용자가 입력하거나 연동한 내용</td>
+<td>거래 내역 저장&#183;조회&#183;수정, 입력 내용 해석, 통계 제공</td>
+</tr>
+<tr>
+<td>파일 및 폴더 정보</td>
+<td>Google Drive 폴더&#183;파일의 이름과 식별자, 스프레드시트 식별자, 소유자&#183;공유자 이메일 및 권한 정보</td>
+<td>가계부 파일 탐색, 연결 및 공유 권한 관리</td>
+</tr>
+<tr>
+<td>공유 대상 정보</td>
+<td>사용자가 입력한 공유 대상 이메일 주소, 부여하거나 회수하는 접근 권한</td>
+<td>사용자가 지정한 상대방과 가계부 공유 및 공유 해제</td>
+</tr>
+<tr>
+<td>앱 설정 및 임시 정보</td>
+<td>로그인 상태, 가계부 설정, 분류 설정, 조회한 데이터 및 파일 식별자 캐시 등</td>
+<td>설정 유지, 가계부 표시 및 조회 성능 개선</td>
+</tr>
+<tr>
+<td>문의 정보</td>
+<td>사용자가 문의할 때 제공한 이메일 주소, 문의 내용 및 첨부자료</td>
+<td>문의 확인, 답변 및 개인정보 관련 요청 처리</td>
+</tr>
+</tbody></table></div>
+<p>정보는 사용자의 직접 입력, Google 로그인 및 권한 부여, Google Drive&#183;Sheets 연동 과정에서 처리됩니다. 입력 원문이나 메모에 개인정보를 포함하면 해당 내용도 가계부의 일부로 처리될 수 있습니다.</p>
+<h2>3. Google 서비스 접근 권한</h2>
+<p>앱은 가계부 기능을 위해 다음 권한을 요청합니다.</p>
+<ul>
+<li>앱에서 사용하도록 허용된 Google Drive 파일의 생성&#183;조회&#183;수정 등 관리</li>
+<li>접근 가능한 Google Drive 파일의 메타데이터 조회</li>
+<li>Google Sheets 스프레드시트의 조회&#183;편집 등 관리</li>
+</ul>
+<p>실제 승인 화면에는 이러한 권한의 범위가 표시됩니다. 파일 메타데이터 조회 및 스프레드시트 권한은 가계부 파일 하나에만 한정된 권한이 아닐 수 있습니다. 앱은 해당 권한을 가계부 파일 탐색&#183;관리와 사용자가 요청한 기능 제공에 사용합니다.</p>
+<p>앱은 Google 계정 비밀번호를 직접 입력받거나 저장하지 않습니다. Google 서비스 접근은 Google의 인증 절차와 사용자가 부여한 권한을 통해 이루어집니다. 로그인 또는 연동 권한을 거부하거나 철회하면 Google에 저장된 가계부를 이용하는 기능이 제한됩니다.</p>
+<h2>4. 저장 위치 및 외부 서비스 이용</h2>
+<div class="table-scroll" role="region" aria-label="개인정보 처리 상세 표" tabindex="0"><table>
+<thead><tr>
+<th scope="col">저장&#183;처리 위치</th>
+<th scope="col">주요 정보 및 처리 내용</th>
+</tr></thead><tbody>
+<tr>
+<td>사용자 기기</td>
+<td>앱 설정과 로그인 상태, 임시 캐시 및 Google 로그인 SDK가 관리하는 인증 세션</td>
+</tr>
+<tr>
+<td>연결된 Google Drive&#183;Google Sheets</td>
+<td>가계부 원본, 관련 파일과 설정, 공유 권한 정보</td>
+</tr>
+<tr>
+<td>운영자의 문의 수신 환경</td>
+<td>사용자가 직접 보낸 문의와 답변 기록</td>
+</tr>
+</tbody></table></div>
+<p>Google은 로그인 인증과 Drive&#183;Sheets 서비스 제공 과정에서 관련 정보를 처리합니다. Google 서비스의 데이터 처리와 보관에는 <a href="https://policies.google.com/privacy?hl=ko">Google 개인정보처리방침</a>이 적용됩니다. Google 서비스의 글로벌 인프라 운영에 따라 정보가 사용자가 거주하는 국가 외의 서버에서 처리될 수 있습니다.</p>
+<p>운영자는 사용자의 Google 계정 전체에 대한 관리 권한을 보유하지 않으며, 앱 사용만으로 운영자에게 가계부 파일의 공유 권한이 부여되지는 않습니다.</p>
+<h2>5. 가계부 공유 및 정보 제공</h2>
+<p>사용자가 가계부 공유 기능을 실행하면 지정한 이메일 주소와 권한 정보가 Google에 전송되고, 지정한 상대방은 부여된 권한에 따라 가계부 폴더와 스프레드시트의 내용을 열람하거나 편집할 수 있습니다. 공유 파일에는 거래 내역, 메모 등 개인정보가 포함될 수 있습니다. 공유 전에 대상과 권한을 확인해 주세요.</p>
+<p>공유를 해제하면 해당 권한에 따른 이후 접근을 제한할 수 있습니다. 다만 상대방이 이미 다운로드하거나 복사한 내용까지 회수되지는 않습니다. 다른 경로로 부여된 권한이 있는 경우에는 Google Drive에서도 접근 권한을 확인해야 합니다.</p>
+<p>운영자는 개인정보를 판매하거나 광고&#183;마케팅 목적으로 이용하지 않습니다. 앱에는 운영자를 위한 광고 SDK나 사용 행태 분석 SDK를 포함하지 않습니다. Google 서비스 연동, 사용자가 요청한 공유 및 법령에 따른 의무 이행 외의 목적으로 개인정보를 외부에 제공하지 않습니다.</p>
+<h2>6. 보관 기간 및 삭제</h2>
+<ul>
+<li><strong>기기의 설정 및 임시 정보:</strong> 앱 이용 중 필요한 기간 동안 유지됩니다. 임시 캐시는 앱 설정의 ‘로컬 캐시 초기화’로 초기화할 수 있습니다. 기기에 저장된 앱 데이터를 삭제하려면 Android 설정에서 앱의 저장공간&#183;데이터 삭제 기능을 이용할 수 있습니다.</li>
+<li><strong>Google의 가계부 파일 및 설정:</strong> 파일 소유자가 삭제할 때까지 연결된 Google Drive&#183;Sheets에 보관됩니다. Google 서비스의 휴지통 및 영구 삭제 절차에 따라 삭제할 수 있습니다. 공유받은 파일은 소유자에게 삭제를 요청해야 할 수 있습니다.</li>
+<li><strong>인증 세션:</strong> Google 로그인 SDK가 관리합니다. 앱 로그아웃 또는 Google 계정의 연결 관리에서 앱 접근 권한을 철회할 수 있습니다.</li>
+<li><strong>문의 기록:</strong> 문의 및 관련 요청 처리가 완료되면 목적을 달성한 개인정보를 지체 없이 삭제합니다. 법령에 따라 보관해야 하는 경우에는 해당 법령에서 정한 기간 동안 보관한 후 삭제합니다.</li>
+</ul>
+<p><strong>로그아웃, 로컬 캐시 초기화 또는 앱 삭제는 Google Drive&#183;Sheets에 저장된 원본 가계부를 자동으로 삭제하지 않습니다.</strong> 원본을 없애려면 해당 파일을 별도로 삭제해야 합니다. 앱에서 Google 연동을 해제해도 Google 계정 자체가 삭제되는 것은 아닙니다.</p>
+<h2>7. 이용자의 권리와 행사 방법</h2>
+<p>사용자는 다음 방법으로 자신의 정보를 확인&#183;수정하거나 처리를 중단할 수 있습니다.</p>
+<ol>
+<li>앱 또는 Google Sheets에서 가계부 내용을 확인하고 수정합니다.</li>
+<li>앱의 공유 관리 기능 또는 Google Drive에서 공유 권한을 확인하고 해제합니다.</li>
+<li><a href="https://myaccount.google.com/connections">Google 계정의 서드 파티 연결 관리</a>에서 앱의 Google 접근 권한을 철회합니다.</li>
+<li>Google Drive에서 본인이 소유한 가계부 파일을 삭제하고 필요한 경우 휴지통에서도 영구 삭제합니다.</li>
+<li>Android 설정에서 앱 데이터를 삭제합니다.</li>
+<li>운영자가 보유한 문의 기록의 열람&#183;정정&#183;삭제 등은 아래 문의처로 요청합니다.</li>
+</ol>
+<p>운영자는 요청 처리에 필요한 최소한의 본인 확인을 요청할 수 있습니다. 운영자가 접근 권한을 갖고 있지 않은 Google 파일은 사용자가 직접 삭제하거나 파일 소유자에게 요청해야 합니다. 운영자에게 삭제를 문의할 때 Google 비밀번호나 인증 토큰을 보내지 마세요.</p>
+<h2>8. 개인정보 보호 조치</h2>
+<p>앱은 Google 인증 및 API 통신에 HTTPS를 사용하고, Google의 인증 절차와 파일 접근 권한에 따라 데이터를 처리합니다. 모바일 인증 세션은 Google 로그인 SDK를 통해 관리하며, 앱이 Google 계정 비밀번호를 별도로 보관하지 않습니다.</p>
+<p>앱의 진단 출력은 운영자의 서버로 자동 전송되지 않습니다. 사용자가 문제 해결을 위해 로그나 화면을 직접 전달하는 경우 계정 정보 또는 거래 내역이 포함될 수 있으므로, 문의와 관계없는 정보는 가린 후 보내 주세요.</p>
+<h2>9. 개인정보 관련 문의</h2>
+<ul>
+<li>운영자 및 개인정보 관련 요청 담당자: <span data-policy="operator">[운영자명 입력 필요]</span></li>
+<li>문의 이메일: <span data-policy="email">[문의 이메일 입력 필요]</span></li>
+</ul>
+<p>개인정보 처리에 관한 질문이나 열람&#183;정정&#183;삭제 요청은 위 이메일로 연락해 주세요. 요청 시 앱 이름 ‘우리가계부’와 요청 내용을 기재해 주세요.</p>
+<h2>10. 개인정보처리방침 변경</h2>
+<p>앱의 기능이나 개인정보 처리 방식이 변경되면 이 방침을 수정하고, 이 페이지를 통해 변경 내용과 시행일을 안내합니다. 법령상 별도 안내나 동의가 필요한 변경은 해당 절차에 따라 진행합니다.</p>
+<p>이 개인정보처리방침은 <span data-policy="effectiveDate">[시행일 입력 필요]</span>부터 적용됩니다.</p>
+    </article>
+  </main>
+</body>
+</html>
