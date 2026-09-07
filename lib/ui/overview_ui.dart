@@ -564,14 +564,8 @@ class _OverviewPageState extends State<OverviewPage> {
                                       fontWeight: FontWeight.bold,
                                     ),
                                   ),
-                                  const SizedBox(height: 4),
-                                  Text(
-                                    '기준 계정: $_currentSelectedEmail',
-                                    style: const TextStyle(
-                                      fontSize: 12,
-                                      color: Colors.grey,
-                                    ),
-                                  ),
+                                  const SizedBox(height: 8),
+                                  _buildAdBannerPlaceholder(),
                                 ],
                               ),
                             ),
@@ -605,6 +599,18 @@ class _OverviewPageState extends State<OverviewPage> {
         backgroundColor: addEntryColor,
         foregroundColor: Colors.white,
         child: const Icon(Icons.edit),
+      ),
+    );
+  }
+
+  /// 실제 광고 SDK 연결 전까지 배너가 들어갈 공간을 예약한다.
+  Widget _buildAdBannerPlaceholder() {
+    return Container(
+      width: double.infinity,
+      height: 50,
+      decoration: BoxDecoration(
+        color: const Color(0xFFF7F7F7),
+        borderRadius: BorderRadius.circular(8),
       ),
     );
   }
