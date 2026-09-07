@@ -593,12 +593,15 @@ class _OverviewPageState extends State<OverviewPage> {
                     },
                   ),
                 ),
-      floatingActionButton: FloatingActionButton(
-        onPressed: _navigateToIngestion,
-        tooltip: '내역 추가',
-        backgroundColor: addEntryColor,
-        foregroundColor: Colors.white,
-        child: const Icon(Icons.edit),
+      floatingActionButton: SafeArea(
+        minimum: const EdgeInsets.only(bottom: 12),
+        child: FloatingActionButton(
+          onPressed: _navigateToIngestion,
+          tooltip: '내역 추가',
+          backgroundColor: addEntryColor,
+          foregroundColor: Colors.white,
+          child: const Icon(Icons.edit),
+        ),
       ),
     );
   }
