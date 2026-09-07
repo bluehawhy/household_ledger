@@ -594,7 +594,7 @@ class _OverviewPageState extends State<OverviewPage> {
                   ),
                 ),
       floatingActionButton: SafeArea(
-        minimum: const EdgeInsets.only(bottom: 12),
+        minimum: const EdgeInsets.only(bottom: 48),
         child: FloatingActionButton(
           onPressed: _navigateToIngestion,
           tooltip: '내역 추가',
