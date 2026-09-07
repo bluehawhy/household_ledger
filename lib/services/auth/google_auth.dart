@@ -43,8 +43,9 @@ class GoogleAuthManager {
     }
   }
 
-  /// 새로고침 후 이미 살아 있는 Web API 인증 클라이언트를 복원한다.
-  /// 모바일에서는 일반 getClient() 흐름을 사용하므로 null을 반환한다.
+  /// 저장된 로그인 세션에서 API 인증 클라이언트를 복원한다.
+  /// 웹은 탭에 보관한 단기 토큰을, 모바일은 네이티브 Google 로그인
+  /// 세션을 이용한다. 복원할 수 없으면 null을 반환한다.
   Future<AuthClient?> restoreAuthorizedClient() async {
     try {
       final result = await (_authService as dynamic).restoreAuthorizedClient();
