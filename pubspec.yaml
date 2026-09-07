@@ -28,6 +28,8 @@ dependencies:
   flutter_launcher_icons: ^0.13.1
   mocktail: ^1.0.4
   logger: ^2.5.0
+  flutter_widget_from_html_core: ^0.17.3
+  html: ^0.15.6
 
 dev_dependencies:
   flutter_test:
@@ -39,6 +41,7 @@ flutter:
   assets:
      - assets/card_bin_data.json
      - assets/ledger_ingestion_info.json
+     - assets/privacy_policy.html
 
 flutter_launcher_icons:
   android: true

@@ -5,14 +5,18 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="description" content="우리가계부의 개인정보 처리 항목, 이용 목적, Google 연동 및 데이터 삭제 방법을 안내합니다.">
   <title>우리가계부 개인정보처리방침</title>
+  <!-- 웹과 앱에서 함께 사용하는 설정입니다. 게시 전 세 값을 입력하세요. -->
+  <script id="privacy-policy-config" type="application/json">
+    {
+      "effectiveDate": "",
+      "operator": "",
+      "email": ""
+    }
+  </script>
   <script>
-    // 게시 전 아래 세 값을 실제 정보로 입력하세요.
-    // 시행일 예: "2026년 9월 8일" — 실제 적용 날짜를 입력합니다.
-    const PRIVACY_POLICY = Object.freeze({
-      effectiveDate: "",
-      operator: "",
-      email: ""
-    });
+    const PRIVACY_POLICY = Object.freeze(JSON.parse(
+      document.getElementById("privacy-policy-config").textContent
+    ));
 
     // 본문은 HTML로 유지하고 반복되는 정보만 안전하게 치환합니다.
     document.addEventListener("DOMContentLoaded", () => {

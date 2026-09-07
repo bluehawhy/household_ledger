@@ -7,6 +7,7 @@ import 'package:household_ledger/services/google_drive/google_drive_folder.dart'
 import 'package:household_ledger/services/google_drive/google_drive_ledger_settings.dart';
 import 'package:household_ledger/services/google_drive/google_drive_spreadsheet.dart';
 import 'package:household_ledger/ui/main_ui.dart';
+import 'package:household_ledger/ui/privacy_policy_ui.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 class SettingUI extends StatefulWidget {
@@ -1239,6 +1240,20 @@ class _SettingUIState extends State<SettingUI> {
               Icons.chevron_right,
             ),
             onTap: () {},
+          ),
+
+          ListTile(
+            leading: const Icon(Icons.privacy_tip_outlined),
+            title: const Text('개인정보처리방침'),
+            subtitle: const Text('개인정보 처리 및 삭제 방법을 확인합니다.'),
+            trailing: const Icon(Icons.chevron_right),
+            onTap: () {
+              Navigator.of(context).push(
+                MaterialPageRoute<void>(
+                  builder: (_) => const PrivacyPolicyUI(),
+                ),
+              );
+            },
           ),
 
           ListTile(
