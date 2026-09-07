@@ -1,6 +1,7 @@
 // ledger_ingestion_ui.dart
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:household_ledger/services/auth/app_account.dart';
 import 'package:intl/intl.dart';
 import 'package:household_ledger/services/auth/google_auth.dart';
@@ -74,6 +75,27 @@ class LedgerIngestionUIState extends State<LedgerIngestionUI> {
     }
 
     _previousText = _inputController.text;
+  }
+
+  Future<void> _copyInputToClipboard() async {
+    final text = _inputController.text;
+
+    if (text.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('복사할 내용이 없습니다.')),
+      );
+      return;
+    }
+
+    await Clipboard.setData(ClipboardData(text: text));
+
+    if (!mounted) return;
+
+    ScaffoldMessenger.of(context)
+      ..hideCurrentSnackBar()
+      ..showSnackBar(
+        const SnackBar(content: Text('클립보드에 복사되었습니다.')),
+      );
   }
 
   /// 🚀 UI 버튼 눌렀을 때 호출되는 핸들러 (UI 조작 및 결과 안내만 담당)
@@ -238,20 +260,23 @@ class LedgerIngestionUIState extends State<LedgerIngestionUI> {
               style: TextStyle(color: Colors.grey[700], fontSize: 13),
             ),
             const SizedBox(height: 12),
-            TextField(
-              controller: _inputController,
-              maxLines: 5,
-              decoration: InputDecoration(
-                hintText:
-                    '가계부 내역을 입력하세요.\n예: 2026/1/3 10,600 쿠팡(쿠페이)\n //을 입력하시면 날짜가 제공 됩니다.',
-                border: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(8.0),
-                ),
-                focusedBorder: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(8.0),
-                  borderSide: BorderSide(
-                    color: Theme.of(context).primaryColor,
-                    width: 2.0,
+            GestureDetector(
+              onDoubleTap: _copyInputToClipboard,
+              child: TextField(
+                controller: _inputController,
+                maxLines: 5,
+                decoration: InputDecoration(
+                  hintText:
+                      '가계부 내역을 입력하세요.\n예: 2026/1/3 10,600 쿠팡(쿠페이)\n //을 입력하시면 날짜가 제공 됩니다.',
+                  border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(8.0),
+                  ),
+                  focusedBorder: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(8.0),
+                    borderSide: BorderSide(
+                      color: Theme.of(context).primaryColor,
+                      width: 2.0,
+                    ),
                   ),
                 ),
               ),
