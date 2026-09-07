@@ -1240,6 +1240,29 @@ class _SettingUIState extends State<SettingUI> {
             ),
             onTap: () {},
           ),
+
+          ListTile(
+            leading: const Icon(
+              Icons.volunteer_activism_outlined,
+              color: Color(0xFFFF6F6A),
+            ),
+            title: const Text('도네이션'),
+            subtitle: const Text(
+              '앱 개발과 운영을 후원합니다.',
+            ),
+            trailing: const Icon(
+              Icons.chevron_right,
+            ),
+            onTap: () {
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(
+                  content: Text(
+                    '도네이션 기능을 준비 중입니다.',
+                  ),
+                ),
+              );
+            },
+          ),
         ],
       ),
     );
