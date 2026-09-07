@@ -611,9 +611,17 @@ class _OverviewPageState extends State<OverviewPage> {
     return Container(
       width: double.infinity,
       height: 50,
+      alignment: Alignment.center,
       decoration: BoxDecoration(
         color: const Color(0xFFF7F7F7),
         borderRadius: BorderRadius.circular(8),
+      ),
+      child: const Text(
+        '광고 배너입니다. 아직 준비중',
+        style: TextStyle(
+          fontSize: 12,
+          color: Colors.grey,
+        ),
       ),
     );
   }
