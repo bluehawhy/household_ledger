@@ -507,6 +507,14 @@ class _OverviewPageState extends State<OverviewPage> {
               child: Column(
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
+                  Image.asset(
+                    'assets/images/app_icon.png',
+                    width: 184,
+                    height: 184,
+                    fit: BoxFit.contain,
+                    semanticLabel: '우리가계부 아이콘',
+                  ),
+                  const SizedBox(height: 28),
                   const CircularProgressIndicator(),
                   const SizedBox(height: 16),
                   Text('$_selectedYear년 $_selectedMonth월 가계부 내역을 불러오는 중...'),
