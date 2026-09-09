@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:household_ledger/services/auth/google_auth.dart';
 import 'package:household_ledger/ui/google_sign_in_button.dart';
@@ -11,11 +12,7 @@ class MainUI extends StatefulWidget {
   final bool skipSessionRestore;
   final GoogleAuthManager? authManager;
 
-  const MainUI({
-    super.key,
-    this.skipSessionRestore = false,
-    this.authManager,
-  });
+  const MainUI({super.key, this.skipSessionRestore = false, this.authManager});
 
   @override
   State<MainUI> createState() => _MainUIState();
@@ -312,42 +309,66 @@ class _MainUIState extends State<MainUI> {
 
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
     return Scaffold(
-      appBar: AppBar(title: const Text('우리가계부')),
-      body: Center(
-        child: _isLoading
-            ? Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: const [
-                  CircularProgressIndicator(),
-                  SizedBox(height: 16),
-                  Text('Google 로그인 상태 확인 중...'),
-                ],
-              )
-            : _authorizationRequired
-                ? Padding(
-                    padding: const EdgeInsets.all(24),
-                    child: Column(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        const Icon(
-                          Icons.lock_outline,
-                          color: Colors.orange,
-                          size: 48,
+      body: SafeArea(
+        child: LayoutBuilder(
+          builder: (context, constraints) => SingleChildScrollView(
+            padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 32),
+            child: ConstrainedBox(
+              constraints: BoxConstraints(
+                minHeight: (constraints.maxHeight - 64).clamp(
+                  0.0,
+                  double.infinity,
+                ),
+              ),
+              child: Center(
+                child: ConstrainedBox(
+                  constraints: const BoxConstraints(maxWidth: 360),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Image.asset(
+                        'assets/images/app_icon.png',
+                        width: 184,
+                        height: 184,
+                        fit: BoxFit.contain,
+                        semanticLabel: '우리가계부 아이콘',
+                      ),
+                      const SizedBox(height: 28),
+                      Text(
+                        '우리가계부',
+                        style: theme.textTheme.headlineMedium?.copyWith(
+                          fontWeight: FontWeight.w800,
+                          color: theme.colorScheme.onSurface,
                         ),
+                      ),
+                      const SizedBox(height: 10),
+                      Text(
+                        '우리의 일상, 차곡차곡 기록해요',
+                        style: theme.textTheme.bodyMedium?.copyWith(
+                          color: theme.colorScheme.onSurfaceVariant,
+                        ),
+                        textAlign: TextAlign.center,
+                      ),
+                      const SizedBox(height: 36),
+                      if (_isLoading) ...[
+                        const CircularProgressIndicator(),
                         const SizedBox(height: 16),
+                        const Text('Google 계정 연결 중...'),
+                      ] else if (_authorizationRequired) ...[
                         Text(
                           _authManager.currentUser?.email ?? '',
-                          style: Theme.of(context).textTheme.titleMedium,
+                          style: theme.textTheme.titleMedium,
                           textAlign: TextAlign.center,
                         ),
-                        const SizedBox(height: 8),
+                        const SizedBox(height: 12),
                         Text(
                           _errorMessage ?? 'Google Drive와 Sheets 접근 권한이 필요합니다.',
                           textAlign: TextAlign.center,
                         ),
                         const SizedBox(height: 20),
-                        ElevatedButton.icon(
+                        FilledButton.icon(
                           onPressed: _handleAuthorizeScopes,
                           icon: const Icon(Icons.verified_user_outlined),
                           label: const Text('Google Drive / Sheets 권한 연결'),
@@ -357,27 +378,39 @@ class _MainUIState extends State<MainUI> {
                           onPressed: _changeLoginAccount,
                           child: const Text('로그아웃 / 다른 계정으로 로그인'),
                         ),
-                      ],
-                    ),
-                  )
-                : _errorMessage != null
-                    ? Padding(
-                        padding: const EdgeInsets.all(24),
-                        child: Column(
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          children: [
-                            const Icon(Icons.error_outline, color: Colors.red, size: 48),
-                            const SizedBox(height: 16),
-                            Text(_errorMessage!, textAlign: TextAlign.center),
-                            const SizedBox(height: 20),
-                            ElevatedButton(
-                              onPressed: _checkSignInState,
-                              child: const Text('다시 시도'),
-                            ),
-                          ],
+                      ] else ...[
+                        if (_errorMessage != null) ...[
+                          Text(
+                            _errorMessage!,
+                            style: TextStyle(color: theme.colorScheme.error),
+                            textAlign: TextAlign.center,
+                          ),
+                          const SizedBox(height: 20),
+                        ],
+                        if (kIsWeb)
+                          buildGoogleSignInButton(onPressed: _handleSignIn)
+                        else
+                          FilledButton.icon(
+                            onPressed: _handleSignIn,
+                            icon: const Icon(Icons.login_rounded, size: 21),
+                            label: const Text('Google 계정으로 로그인'),
+                          ),
+                        const SizedBox(height: 16),
+                        Text(
+                          'Google 계정으로 나의 가계부를 이어가세요',
+                          style: theme.textTheme.bodySmall?.copyWith(
+                            color: theme.colorScheme.onSurfaceVariant,
+                          ),
+                          textAlign: TextAlign.center,
                         ),
-                      )
-                    : buildGoogleSignInButton(onPressed: _handleSignIn),
+                      ],
+                    ],
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ),
       ),
     );
   }

@@ -39,6 +39,7 @@ dev_dependencies:
 flutter:
   uses-material-design: true
   assets:
+     - assets/images/app_icon.png
      - assets/data/card_bin_data.json
      - assets/data/ledger_ingestion_info.json
      - assets/privacy/privacy_policy.html
@@ -47,4 +48,14 @@ flutter:
 flutter_launcher_icons:
   android: true
   ios: true
-  image_path: "assets/icon/app_icon.png"
+  image_path: "assets/images/app_icon.png"
+  remove_alpha_ios: true
+  web:
+    generate: true
+    image_path: "assets/images/app_icon.png"
+    background_color: "#FFF7E8"
+    theme_color: "#FFF7E8"
+  windows:
+    generate: true
+    image_path: "assets/images/app_icon.png"
+    icon_size: 256

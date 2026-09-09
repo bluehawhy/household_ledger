@@ -10,6 +10,34 @@ class MockAuthManager extends Mock implements GoogleAuthManager {}
 
 void main() {
   testWidgets(
+    'landing login remains usable on a small screen after cancellation',
+    (tester) async {
+      tester.view.physicalSize = const Size(320, 480);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+      SharedPreferences.setMockInitialValues({'is_logged_in': false});
+      final auth = MockAuthManager();
+      when(() => auth.currentUser).thenReturn(null);
+      when(
+        () => auth.onCurrentUserChanged,
+      ).thenAnswer((_) => const Stream.empty());
+      when(() => auth.signIn()).thenAnswer((_) async => null);
+      await tester.pumpWidget(MaterialApp(home: MainUI(authManager: auth)));
+      await tester.pumpAndSettle();
+      expect(find.byType(Image), findsOneWidget);
+      final login = find.widgetWithText(FilledButton, 'Google 계정으로 로그인');
+      await tester.ensureVisible(login);
+      await tester.tap(login);
+      await tester.pumpAndSettle();
+      verify(() => auth.signIn()).called(1);
+      expect(find.text('Google 로그인에 실패했습니다.\n다시 시도해 주세요.'), findsOneWidget);
+      expect(login, findsOneWidget);
+      expect(tester.takeException(), isNull);
+    },
+  );
+
+  testWidgets(
     'refresh restores remembered account directly to Sheets connection, with logout available',
     (tester) async {
       SharedPreferences.setMockInitialValues({'is_logged_in': true});

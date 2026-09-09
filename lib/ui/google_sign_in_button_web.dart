@@ -11,7 +11,7 @@ Widget buildPlatformGoogleSignInButton({required VoidCallback onPressed}) {
       theme: GSIButtonTheme.outline,
       size: GSIButtonSize.large,
       text: GSIButtonText.signinWith,
-      shape: GSIButtonShape.rectangular,
+      shape: GSIButtonShape.pill,
       minimumWidth: 240,
     ),
   );
