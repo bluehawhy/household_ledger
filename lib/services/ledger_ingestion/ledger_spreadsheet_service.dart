@@ -35,7 +35,7 @@ class LedgerSpreadsheetService {
   /// 서비스 초기화 시 JSON 설정 파일 및 구글 드라이브 시트 목록을 사전 스캔한다.
   Future<void> init(
     AuthClient client, [
-    String filePath = 'assets/ledger_ingestion_info.json',
+    String filePath = 'assets/data/ledger_ingestion_info.json',
   ]) async {
     // 동일 서비스 인스턴스에서 동시에 여러 번 초기화하지 않는다.
     if (_initializationFuture != null) {

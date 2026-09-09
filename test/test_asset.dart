@@ -10,7 +10,7 @@ void main() async {
 
 Future<void> loadConfig() async {
   // Flutter 앱, Dart CLI 양쪽 모두 동일하게 사용 가능!
-  final jsonString = await JsonAssetManager.loadJson('assets/card_bin_data.json');
+  final jsonString = await JsonAssetManager.loadJson('assets/data/card_bin_data.json');
   final Map<String, dynamic> data = jsonDecode(jsonString);
   
   print("성공적으로 JSON 로드 완료: ${data.length}개 항목");

@@ -6,7 +6,7 @@ void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
   test('Flutter rootBundle 환경에서 에셋 로드 테스트', () async {
-    final jsonString = await JsonAssetManager.loadJson('assets/ledger_ingestion_info.json');
+    final jsonString = await JsonAssetManager.loadJson('assets/data/ledger_ingestion_info.json');
     
     print("✅ Flutter 에셋 로드 성공! 길이: ${jsonString.length}");
     expect(jsonString, isNotEmpty);

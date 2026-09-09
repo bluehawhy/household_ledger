@@ -173,7 +173,7 @@ class CategoryMapper {
   bool _isLoaded = false;
   bool get isLoaded => _isLoaded;
 
-  Future<void> loadCategoryJson([String filePath = 'assets/ledger_ingestion_info.json']) async {
+  Future<void> loadCategoryJson([String filePath = 'assets/data/ledger_ingestion_info.json']) async {
     if (_isLoaded) return;
     try {
       final jsonString = await JsonAssetManager.loadJson(filePath);

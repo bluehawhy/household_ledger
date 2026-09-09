@@ -5,31 +5,33 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="description" content="우리가계부의 개인정보 처리 항목, 이용 목적, Google 연동 및 데이터 삭제 방법을 안내합니다.">
   <title>우리가계부 개인정보처리방침</title>
-  <!-- 웹과 앱에서 함께 사용하는 설정입니다. 게시 전 세 값을 입력하세요. -->
-  <script id="privacy-policy-config" type="application/json">
-    {
-      "effectiveDate": "2026-09-01",
-      "operator": "우리가계부 운영자",
-      "email": "bluehawhy@gmail.com"
-    }
-  </script>
   <script>
-    const PRIVACY_POLICY = Object.freeze(JSON.parse(
-      document.getElementById("privacy-policy-config").textContent
-    ));
-
-    // 본문은 HTML로 유지하고 반복되는 정보만 안전하게 치환합니다.
-    document.addEventListener("DOMContentLoaded", () => {
-      document.querySelectorAll("[data-policy]").forEach((element) => {
-        const value = PRIVACY_POLICY[element.dataset.policy]?.trim();
-        if (value) element.textContent = value;
-      });
+    // 앱과 같은 JSON 설정 파일을 읽습니다. HTTP(S) 서버에서 열어 주세요.
+    document.addEventListener("DOMContentLoaded", async () => {
+      try {
+        const response = await fetch("./privacy_policy_config.json", { cache: "no-cache" });
+        if (!response.ok) throw new Error("설정 파일을 불러오지 못했습니다.");
+        const policy = await response.json();
+        document.querySelectorAll("[data-policy]").forEach((element) => {
+          const value = policy[element.dataset.policy];
+          if (typeof value === "string" && value.trim()) element.textContent = value.trim();
+        });
+      } catch (error) {
+        const notice = document.createElement("p");
+        notice.setAttribute("role", "alert");
+        notice.textContent = "운영자 정보를 불러오지 못했습니다. 잠시 후 새로고침해 주세요.";
+        document.querySelector("article").prepend(notice);
+        console.error(error);
+      }
     });
   </script>
   <!--
-    공개 방법: 이 HTML 파일을 정적 웹 호스팅에 올리고 공개 URL을
+    설정 수정: privacy_policy_config.json에서 시행일, 운영자, 이메일,
+    문의 제목(contactSubject)과 본문(contactBody)을 수정하세요. 줄바꿈은 \n입니다.
+    공개 방법: 이 HTML과 privacy_policy_config.json을 같은 폴더에 올리고 공개 URL을
     Play Console 및 앱 내 개인정보처리방침 메뉴에 연결합니다.
-    외부 라이브러리, 폰트, 분석 도구 없이 파일 하나로 동작합니다.
+    외부 라이브러리, 폰트, 분석 도구 없이 동작합니다.
+    로컬 파일을 더블클릭하는 대신 HTTP(S) 서버에서 확인하세요.
     JavaScript를 실행하지 않는 환경에도 완성된 운영자 정보를 제공하려면,
     게시할 때 본문의 [시행일 입력 필요], [운영자명 입력 필요],
     [문의 이메일 입력 필요]도 같은 실제 값으로 교체하세요.

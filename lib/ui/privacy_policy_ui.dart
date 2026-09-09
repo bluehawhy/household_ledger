@@ -25,15 +25,12 @@ class _PrivacyPolicyUIState extends State<PrivacyPolicyUI> {
   }
 
   Future<String> _loadPolicy() async {
-    final source = await DefaultAssetBundle.of(
-      context,
-    ).loadString('assets/privacy_policy.html');
+    final bundle = DefaultAssetBundle.of(context);
+    final source = await bundle.loadString('assets/privacy/privacy_policy.html');
     final document = html_parser.parse(source);
-    final configElement = document.getElementById('privacy-policy-config');
-    if (configElement == null) {
-      throw const FormatException('개인정보처리방침 설정이 없습니다.');
-    }
-    final config = jsonDecode(configElement.text) as Map<String, dynamic>;
+    final config = jsonDecode(
+      await bundle.loadString('assets/privacy/privacy_policy_config.json'),
+    ) as Map<String, dynamic>;
     for (final element in document.querySelectorAll('[data-policy]')) {
       final value = config[element.attributes['data-policy']];
       if (value is String && value.trim().isNotEmpty) {

@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import 'package:flutter/material.dart';
 import 'package:household_ledger/services/auth/app_account.dart';
 import 'package:googleapis/drive/v3.dart' as drive;
@@ -9,6 +11,7 @@ import 'package:household_ledger/services/google_drive/google_drive_spreadsheet.
 import 'package:household_ledger/ui/main_ui.dart';
 import 'package:household_ledger/ui/privacy_policy_ui.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 class SettingUI extends StatefulWidget {
   final AppAccount googleUser;
@@ -41,6 +44,73 @@ class _SettingUIState extends State<SettingUI> {
   List<String> _sharedEmails = [];
 
   final GoogleAuthManager _authManager = GoogleAuthManager();
+
+  Future<void> _contactDeveloper() async {
+    String email;
+    String subject;
+    String body;
+    try {
+      final source = await DefaultAssetBundle.of(
+        context,
+      ).loadString('assets/privacy/privacy_policy_config.json');
+      final config = jsonDecode(source) as Map<String, dynamic>;
+      email = (config['email'] as String? ?? '').trim();
+      subject = config['contactSubject'] as String? ?? '[우리가계부] ';
+      body = config['contactBody'] as String? ?? '';
+      if (email.isEmpty) throw const FormatException('문의 이메일이 없습니다.');
+    } catch (_) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('문의 이메일을 불러오지 못했습니다.')),
+      );
+      return;
+    }
+
+    if (!mounted) return;
+    final uri = Uri(
+      scheme: 'mailto',
+      path: email,
+      query: 'subject=${Uri.encodeComponent(subject)}'
+          '&body=${Uri.encodeComponent(body)}',
+    );
+    try {
+      if (await launchUrl(uri, mode: LaunchMode.externalApplication)) return;
+    } catch (_) {
+      // 메일 앱이 없거나 실행할 수 없으면 복사 가능한 주소를 안내합니다.
+    }
+    if (!mounted) return;
+    await showDialog<void>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('개발자 문의'),
+        content: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text('메일 앱을 열지 못했습니다. 아래 주소로 문의해 주세요.'),
+              const SizedBox(height: 12),
+              SelectableText(email),
+              const SizedBox(height: 16),
+              const Text('제목'),
+              SelectableText(subject),
+              if (body.isNotEmpty) ...[
+                const SizedBox(height: 16),
+                const Text('본문'),
+                SelectableText(body),
+              ],
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(),
+            child: const Text('확인'),
+          ),
+        ],
+      ),
+    );
+  }
 
   @override
   void initState() {
@@ -1254,6 +1324,14 @@ class _SettingUIState extends State<SettingUI> {
                 ),
               );
             },
+          ),
+
+          ListTile(
+            leading: const Icon(Icons.mail_outline),
+            title: const Text('개발자 문의'),
+            subtitle: const Text('문의 및 개선 의견을 이메일로 보냅니다.'),
+            trailing: const Icon(Icons.chevron_right),
+            onTap: _contactDeveloper,
           ),
 
           ListTile(

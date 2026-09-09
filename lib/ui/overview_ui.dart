@@ -16,6 +16,7 @@ import 'package:household_ledger/services/ledger_ingestion/ledger_transaction_se
 import 'package:household_ledger/ui/ledger_ingestion_ui.dart';
 import 'package:household_ledger/ui/setting_ui.dart';
 import 'package:household_ledger/ui/category_detail_ui.dart';
+import 'package:household_ledger/ui/expense_category_order.dart';
 import 'package:household_ledger/services/utils/app_logger.dart';
 
 class OverviewPage extends StatefulWidget {
@@ -723,6 +724,9 @@ class _OverviewPageState extends State<OverviewPage> {
     required bool isExpense,
   }) {
     final bool hasCategoryData = categoryData.isNotEmpty;
+    final categoryEntries = isExpense
+        ? orderedExpenseCategories(categoryData)
+        : categoryData.entries;
 
     return SingleChildScrollView(
       physics: const AlwaysScrollableScrollPhysics(),
@@ -793,7 +797,7 @@ class _OverviewPageState extends State<OverviewPage> {
           ),
           const SizedBox(height: 8),
           if (hasCategoryData)
-            ...categoryData.entries.map((entry) {
+            ...categoryEntries.map((entry) {
               return _buildDetailTile(
                 name: entry.key,
                 amount: entry.value,

@@ -39,9 +39,10 @@ dev_dependencies:
 flutter:
   uses-material-design: true
   assets:
-     - assets/card_bin_data.json
-     - assets/ledger_ingestion_info.json
-     - assets/privacy_policy.html
+     - assets/data/card_bin_data.json
+     - assets/data/ledger_ingestion_info.json
+     - assets/privacy/privacy_policy.html
+     - assets/privacy/privacy_policy_config.json
 
 flutter_launcher_icons:
   android: true

@@ -154,10 +154,10 @@ class TextParserService {
   Map<String, dynamic> _binData = {};
 
   /// JSON 리소스 로드 및 초기화
-  Future<void> init([String filePath = 'assets/ledger_ingestion_info.json']) async {
+  Future<void> init([String filePath = 'assets/data/ledger_ingestion_info.json']) async {
     if (_isInitialized) return;
     try {
-      final binJsonString = await JsonAssetManager.loadJson('assets/card_bin_data.json');
+      final binJsonString = await JsonAssetManager.loadJson('assets/data/card_bin_data.json');
       _binData = jsonDecode(binJsonString) as Map<String, dynamic>;
       AppLogger.i("BIN 데이터 로드 완료 (${_binData.length}개)");
       _isInitialized = true;

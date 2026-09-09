@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter/material.dart';
@@ -7,9 +8,10 @@ import 'package:flutter_widget_from_html_core/flutter_widget_from_html_core.dart
 import 'package:household_ledger/ui/privacy_policy_ui.dart';
 
 class _PolicyBundle extends CachingAssetBundle {
-  _PolicyBundle(this.source);
+  _PolicyBundle(this.source, this.config);
 
   final String source;
+  final String config;
   bool fail = false;
 
   @override
@@ -18,12 +20,17 @@ class _PolicyBundle extends CachingAssetBundle {
   @override
   Future<String> loadString(String key, {bool cache = true}) async {
     if (fail) throw StateError('Asset unavailable');
-    return source;
+    return switch (key) {
+      'assets/privacy/privacy_policy.html' => source,
+      'assets/privacy/privacy_policy_config.json' => config,
+      _ => throw StateError('Unexpected asset: $key'),
+    };
   }
 }
 
 void main() {
-  final source = File('assets/privacy_policy.html').readAsStringSync();
+  final source = File('assets/privacy/privacy_policy.html').readAsStringSync();
+  final config = File('assets/privacy/privacy_policy_config.json').readAsStringSync();
 
   testWidgets(
     'HTML config and tables render and scroll to the end on a phone',
@@ -33,13 +40,13 @@ void main() {
       addTearDown(tester.view.resetPhysicalSize);
       addTearDown(tester.view.resetDevicePixelRatio);
       final bundle = _PolicyBundle(
-        source
-            .replaceFirst(
-              '"effectiveDate": ""',
-              '"effectiveDate": "2026년 9월 8일"',
-            )
-            .replaceFirst('"operator": ""', '"operator": "운영자 <테스트>"')
-            .replaceFirst('"email": ""', '"email": "privacy@example.com"'),
+        source,
+        jsonEncode({
+          ...jsonDecode(config) as Map<String, dynamic>,
+          'effectiveDate': '2026년 9월 8일',
+          'operator': '운영자 <테스트>',
+          'email': 'privacy@example.com',
+        }),
       );
       await tester.pumpWidget(
         DefaultAssetBundle(
@@ -80,7 +87,7 @@ void main() {
   );
 
   testWidgets('failed asset load can be retried', (tester) async {
-    final bundle = _PolicyBundle(source)..fail = true;
+    final bundle = _PolicyBundle(source, config)..fail = true;
     await tester.pumpWidget(
       DefaultAssetBundle(
         bundle: bundle,
