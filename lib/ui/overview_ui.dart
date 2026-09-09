@@ -18,6 +18,7 @@ import 'package:household_ledger/ui/setting_ui.dart';
 import 'package:household_ledger/ui/category_detail_ui.dart';
 import 'package:household_ledger/ui/expense_category_order.dart';
 import 'package:household_ledger/services/utils/app_logger.dart';
+import 'package:household_ledger/ui/widgets/banner_ad.dart';
 
 class OverviewPage extends StatefulWidget {
   final AppAccount googleUser;
@@ -574,7 +575,7 @@ class _OverviewPageState extends State<OverviewPage> {
                                     ),
                                   ),
                                   const SizedBox(height: 8),
-                                  _buildAdBannerPlaceholder(),
+                                  const AppBannerAd(),
                                 ],
                               ),
                             ),
@@ -615,25 +616,6 @@ class _OverviewPageState extends State<OverviewPage> {
     );
   }
 
-  /// 실제 광고 SDK 연결 전까지 배너가 들어갈 공간을 예약한다.
-  Widget _buildAdBannerPlaceholder() {
-    return Container(
-      width: double.infinity,
-      height: 50,
-      alignment: Alignment.center,
-      decoration: BoxDecoration(
-        color: const Color(0xFFF7F7F7),
-        borderRadius: BorderRadius.circular(8),
-      ),
-      child: const Text(
-        '광고 배너입니다. 아직 준비중',
-        style: TextStyle(
-          fontSize: 12,
-          color: Colors.grey,
-        ),
-      ),
-    );
-  }
 
   Widget _buildCompactOverview() {
     return PageView(

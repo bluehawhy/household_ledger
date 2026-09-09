@@ -1,9 +1,12 @@
 import 'package:flutter/material.dart';
 import 'ui/main_ui.dart';
 import 'ui/theme/app_theme.dart';
+import 'services/advertising/mobile_ads_initializer.dart'
+    if (dart.library.html) 'services/advertising/mobile_ads_initializer_stub.dart';
 
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
+  await initializeMobileAds();
   runApp(const MyApp());
 }
 

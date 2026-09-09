@@ -77,5 +77,8 @@
         </array>
     </dict>
 </array>
+	<!-- Google 테스트 App ID입니다. 출시 전 AdMob 콘솔의 실제 App ID로 교체하세요. -->
+	<key>GADApplicationIdentifier</key>
+	<string>ca-app-pub-3940256099942544~1458002511</string>
 </dict>
 </plist>
