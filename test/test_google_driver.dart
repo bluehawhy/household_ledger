@@ -64,7 +64,7 @@ void main() async {
         final LedgerSubmitResult result = await ingestionService.processAndSubmit(
           authClient: client,
           rawInput: rawInput,
-          accountId: 'desktop_test',
+          loginEmail: 'desktop_test@gmail.com',
         );
 
         if (result.isSuccess) {
