@@ -187,6 +187,94 @@ class LedgerWriteService {
     }
   }
 
+  /// UUID가 일치하는 거래 행을 삭제한다.
+  Future<bool> deleteTransaction({
+    required AuthClient client,
+    required LedgerItem item,
+    String? spreadsheetId,
+    String? accountEmail,
+  }) async {
+    if (item.uuid.trim().isEmpty) {
+      AppLogger.i('⚠️ UUID가 없는 기존 내역은 안전하게 삭제할 수 없습니다.');
+      return false;
+    }
+
+    final targetSpreadsheetId = spreadsheetId?.isNotEmpty == true
+        ? spreadsheetId!
+        : await sheetSetupService.setupLedgerSpreadsheetForYear(
+            client,
+            item.date.year,
+            accountEmail: accountEmail,
+            createIfNotFound: false,
+          );
+    if (targetSpreadsheetId == null) return false;
+
+    final sheetsApi = sheets.SheetsApi(client);
+    final sheetName = '${item.date.month}월';
+
+    try {
+      final spreadsheet = await sheetsApi.spreadsheets.get(
+        targetSpreadsheetId,
+      );
+      final sheetId = spreadsheet.sheets
+          ?.where((sheet) => sheet.properties?.title == sheetName)
+          .firstOrNull
+          .properties
+          ?.sheetId;
+      if (sheetId == null) return false;
+
+      final response = await sheetsApi.spreadsheets.values.get(
+        targetSpreadsheetId,
+        "'$sheetName'!A:I",
+      );
+      final rows = response.values ?? [];
+      if (rows.isEmpty) return false;
+
+      final uuidIndex = LedgerRowMapper.indexOfHeader(rows.first, 'uuid');
+      if (uuidIndex == null) return false;
+
+      var rowIndex = -1;
+      for (var index = 1; index < rows.length; index++) {
+        final row = rows[index];
+        if (row.length > uuidIndex &&
+            row[uuidIndex].toString().trim() == item.uuid.trim()) {
+          rowIndex = index;
+          break;
+        }
+      }
+      if (rowIndex < 1) return false;
+
+      await sheetsApi.spreadsheets.batchUpdate(
+        sheets.BatchUpdateSpreadsheetRequest(
+          requests: [
+            sheets.Request(
+              deleteDimension: sheets.DeleteDimensionRequest(
+                range: sheets.DimensionRange(
+                  sheetId: sheetId,
+                  dimension: 'ROWS',
+                  startIndex: rowIndex,
+                  endIndex: rowIndex + 1,
+                ),
+              ),
+            ),
+          ],
+        ),
+        targetSpreadsheetId,
+      );
+
+      AppLogger.i("✅ [$sheetName] UUID 기준 내역 삭제 완료 (행: ${rowIndex + 1})");
+      return true;
+    } on sheets.DetailedApiRequestError catch (e) {
+      AppLogger.i(
+        '❌ [$sheetName] UUID 기준 삭제 API 에러 (${e.status}): ${e.message}',
+      );
+      return false;
+    } catch (e) {
+      AppLogger.i('❌ [$sheetName] UUID 기준 삭제 중 예외 발생: $e');
+      return false;
+    }
+  }
+
   /// 월별 다중 거래를 배치 저장한다.
   Future<bool> appendTransactionBatch(
     sheets.SheetsApi sheetsApi,
