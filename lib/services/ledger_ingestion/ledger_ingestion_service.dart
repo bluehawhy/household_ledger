@@ -205,7 +205,7 @@ class LedgerIngestionService {
         try {
           final response = await sheetsApi.spreadsheets.values.get(
             spreadsheetId,
-            "'$sheetName'!1:1000",
+            "'$sheetName'",
           );
           final existingRows = response.values ?? [];
           final existingKeys = _existingTransactionKeys(existingRows);
