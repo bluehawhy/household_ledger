@@ -99,7 +99,7 @@ class LedgerSpreadsheetService {
     await init(client);
   }
 
-  /// 특정 연도 가계부 설정 (타 계정용 등 생성 방지 옵션 createIfNotFound 추가)
+  /// 특정 연도의 가계부 파일을 조회하고, 허용된 경우 대상 폴더에 생성한다.
   Future<String?> setupLedgerSpreadsheetForYear(
     AuthClient client,
     int year, {
@@ -173,13 +173,13 @@ class LedgerSpreadsheetService {
       // 1. 기존 폴더 조회
       folderId ??= await folderRepo.getFolderId(folderName);
 
-      // 2. 폴더가 없고 createIfNotFound가 false인 경우 (타 계정 등) 진행 불가
+      // 2. 대상 계정의 폴더를 찾지 못했고 생성을 허용하지 않은 경우 진행 불가
       if (folderId == null && !createIfNotFound) {
-        AppLogger.i("⚠️ '$folderName' 폴더가 존재하지 않으며, 타 계정이므로 신규 폴더 및 파일 생성을 진행하지 않습니다.");
+        AppLogger.i("⚠️ '$folderName' 폴더가 존재하지 않아 신규 폴더 및 파일 생성을 진행하지 않습니다.");
         return null;
       }
 
-      // 3. 폴더가 없는 경우 내 계정이면 신규 생성
+      // 3. 대상 폴더가 없으면 현재 계정의 내 드라이브에 신규 생성
       if (folderId == null) {
         try {
           folderId = await folderRepo.createFolder(folderName);
@@ -197,7 +197,7 @@ class LedgerSpreadsheetService {
         return existingId;
       }
 
-      // 5. 스프레드시트가 없고 createIfNotFound가 false인 경우 생성하지 않음
+      // 5. 스프레드시트가 없고 생성을 허용하지 않은 경우 생성하지 않음
       if (!createIfNotFound) {
         AppLogger.i("⚠️ '$fileName' 파일이 존재하지 않아 신규 생성을 진행하지 않습니다.");
         return null;
