@@ -30,6 +30,7 @@ dependencies:
   logger: ^2.5.0
   flutter_widget_from_html_core: ^0.17.3
   html: ^0.15.6
+  google_mobile_ads: ^6.0.0
 
 dev_dependencies:
   flutter_test:

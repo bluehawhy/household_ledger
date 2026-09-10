@@ -29,10 +29,12 @@ class LedgerSubmitResult {
 class LedgerIngestionService {
   final TextParserService _textParserService = TextParserService();
   final LedgerDataService _ledgerService = LedgerDataService();
+  int _lastUuidTimestamp = 0;
 
   Future<LedgerSubmitResult> processAndSubmit({
     required auth.AuthClient authClient,
     required String rawInput,
+    required String loginEmail,
     String? accountEmail,
   }) async {
     AppLogger.i("rawInput 처리 시작: '$rawInput'");
@@ -47,7 +49,7 @@ class LedgerIngestionService {
         );
       }
 
-      final parsed = _parseItems(lines);
+      final parsed = _parseItems(lines, loginEmail);
       if (parsed.items.isEmpty) {
         return LedgerSubmitResult(
           isSuccess: false,
@@ -96,13 +98,14 @@ class LedgerIngestionService {
     }
   }
 
-  _ParsedItems _parseItems(List<String> lines) {
+  _ParsedItems _parseItems(List<String> lines, String loginEmail) {
     final items = <LedgerItem>[];
     var fail = 0;
 
     for (final line in lines) {
       try {
         final itemMap = _textParserService.parseSingleLineToMap(line);
+        itemMap['uuid'] = _createUuid(loginEmail);
         itemMap['raw_txt'] = line.trim();
         final item = LedgerItem.fromMap(itemMap);
         if (item.amount <= 0) {
@@ -116,6 +119,24 @@ class LedgerIngestionService {
     }
 
     return _ParsedItems(items: items, fail: fail);
+  }
+
+  String _createUuid(String loginEmail) {
+    final normalizedEmail = loginEmail.trim().toLowerCase();
+    final atIndex = normalizedEmail.indexOf('@');
+    final loginId = atIndex > 0
+        ? normalizedEmail.substring(0, atIndex)
+        : normalizedEmail;
+    if (loginId.isEmpty) {
+      throw const FormatException('UUID 생성에 필요한 로그인 이메일이 없습니다.');
+    }
+
+    var timestamp = DateTime.now().toUtc().microsecondsSinceEpoch;
+    if (timestamp <= _lastUuidTimestamp) {
+      timestamp = _lastUuidTimestamp + 1;
+    }
+    _lastUuidTimestamp = timestamp;
+    return '${loginId}_$timestamp';
   }
 
   Future<_TargetSpreadsheets> _resolveTargetSpreadsheets({
@@ -135,7 +156,7 @@ class LedgerIngestionService {
             authClient,
             year,
             accountEmail: accountEmail,
-            createIfNotFound: accountEmail == null,
+            createIfNotFound: true,
           );
       if (spreadsheetId == null) {
         missingYears.add(year);
@@ -184,7 +205,7 @@ class LedgerIngestionService {
         try {
           final response = await sheetsApi.spreadsheets.values.get(
             spreadsheetId,
-            "'$sheetName'!1:1000",
+            "'$sheetName'",
           );
           final existingRows = response.values ?? [];
           final existingKeys = _existingTransactionKeys(existingRows);

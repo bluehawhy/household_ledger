@@ -18,6 +18,9 @@ import 'package:household_ledger/ui/setting_ui.dart';
 import 'package:household_ledger/ui/category_detail_ui.dart';
 import 'package:household_ledger/ui/expense_category_order.dart';
 import 'package:household_ledger/services/utils/app_logger.dart';
+import 'package:household_ledger/ui/widgets/banner_ad.dart';
+import 'package:household_ledger/services/advertising/app_interstitial_ad.dart'
+    if (dart.library.html) 'package:household_ledger/services/advertising/app_interstitial_ad_stub.dart';
 
 class OverviewPage extends StatefulWidget {
   final AppAccount googleUser;
@@ -335,6 +338,13 @@ class _OverviewPageState extends State<OverviewPage> {
     }
   }
 
+  /// 앱 바의 새로고침은 모바일 전면 광고가 준비된 경우에만 먼저 표시합니다.
+  /// 아래로 당겨 새로고침할 때는 광고를 띄우지 않습니다.
+  Future<void> _refreshFromAppBar() async {
+    await showOverviewRefreshInterstitial();
+    await _loadMonthlyData();
+  }
+
   Future<void> _restoreSelectedAccount(AuthClient client) async {
     if (_hasRestoredSelectedAccount) return;
 
@@ -493,7 +503,7 @@ class _OverviewPageState extends State<OverviewPage> {
           IconButton(
             icon: const Icon(Icons.refresh),
             tooltip: '새로고침',
-            onPressed: _loadMonthlyData,
+            onPressed: _refreshFromAppBar,
           ),
           IconButton(
             icon: const Icon(Icons.settings),
@@ -574,7 +584,7 @@ class _OverviewPageState extends State<OverviewPage> {
                                     ),
                                   ),
                                   const SizedBox(height: 8),
-                                  _buildAdBannerPlaceholder(),
+                                  const AppBannerAd(),
                                 ],
                               ),
                             ),
@@ -617,25 +627,6 @@ class _OverviewPageState extends State<OverviewPage> {
     );
   }
 
-  /// 실제 광고 SDK 연결 전까지 배너가 들어갈 공간을 예약한다.
-  Widget _buildAdBannerPlaceholder() {
-    return Container(
-      width: double.infinity,
-      height: 50,
-      alignment: Alignment.center,
-      decoration: BoxDecoration(
-        color: const Color(0xFFF7F7F7),
-        borderRadius: BorderRadius.circular(8),
-      ),
-      child: const Text(
-        '광고 배너입니다. 아직 준비중',
-        style: TextStyle(
-          fontSize: 12,
-          color: Colors.grey,
-        ),
-      ),
-    );
-  }
 
   Widget _buildCompactOverview() {
     return PageView(

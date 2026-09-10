@@ -1,9 +1,15 @@
 import 'package:flutter/material.dart';
 import 'ui/main_ui.dart';
 import 'ui/theme/app_theme.dart';
+import 'services/advertising/mobile_ads_initializer.dart'
+    if (dart.library.html) 'services/advertising/mobile_ads_initializer_stub.dart';
+import 'services/advertising/app_interstitial_ad.dart'
+    if (dart.library.html) 'services/advertising/app_interstitial_ad_stub.dart';
 
-void main() {
+Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  await initializeMobileAds();
+  await initializeInterstitialAd();
   runApp(const MyApp());
 }
 

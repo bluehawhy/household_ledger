@@ -2,6 +2,7 @@ import 'package:google_sign_in/google_sign_in.dart';
 import 'package:googleapis_auth/auth_io.dart';
 import 'package:http/http.dart' as http;
 import 'google_auth_stub.dart';
+import 'package:household_ledger/services/utils/app_logger.dart';
 
 /// Google 네이티브 로그인 세션에서 요청 시점마다 액세스 토큰을 가져오는
 /// 모바일 전용 AuthClient.
@@ -152,7 +153,7 @@ class GoogleAuthMobileService extends GoogleAuthService {
         scopes: scopes,
       );
     } catch (e) {
-      print('❌ [Mobile Auth Error] Google Sign-In 실패: $e');
+      AppLogger.i('❌ [Mobile Auth Error] Google Sign-In 실패: $e');
       rethrow;
     }
   }

@@ -19,6 +19,7 @@ enum TransactionType {
 
 /// 가계부 거래 항목 모델
 class LedgerItem {
+  final String uuid;          // 로그인 계정 ID + 입력 시각
   final DateTime date;        // 입력 날짜
   final TransactionType type; // 수입 or 지출
   final String? payMethod;    // 결제/지출 수단
@@ -29,6 +30,7 @@ class LedgerItem {
   final String rawTxt;        // 사용자 입력 원문
 
   const LedgerItem({
+    this.uuid = '',
     required this.date,
     required this.type,
     this.category = '미입력',
@@ -68,6 +70,7 @@ class LedgerItem {
     }
 
     return LedgerItem(
+      uuid: map['uuid'] as String? ?? '',
       date: parsedDate,
       type: parsedType,
       category: map['category'] as String? ?? '미입력',
@@ -82,6 +85,7 @@ class LedgerItem {
   /// LedgerItem 객체를 Map 형태로 변환
   Map<String, dynamic> toMap() {
     return {
+      'uuid': uuid,
       'date': date.toIso8601String(),
       'type': type.toJson(),
       'category': category,
@@ -102,6 +106,7 @@ class LedgerItem {
 
   /// 불변 객체 값 변경용 copyWith
   LedgerItem copyWith({
+    String? uuid,
     DateTime? date,
     TransactionType? type,
     String? category,
@@ -112,6 +117,7 @@ class LedgerItem {
     String? rawTxt,
   }) {
     return LedgerItem(
+      uuid: uuid ?? this.uuid,
       date: date ?? this.date,
       type: type ?? this.type,
       category: category ?? this.category,
@@ -125,13 +131,14 @@ class LedgerItem {
 
   @override
   String toString() {
-    return 'LedgerItem(date: $formattedDate, type: ${type.name}, category: $category, description: $description, amount: $amount, payMethod: $payMethod, memo: $memo, rawTxt: $rawTxt)';
+    return 'LedgerItem(uuid: $uuid, date: $formattedDate, type: ${type.name}, category: $category, description: $description, amount: $amount, payMethod: $payMethod, memo: $memo, rawTxt: $rawTxt)';
   }
 
   @override
   bool operator ==(Object other) {
     if (identical(this, other)) return true;
     return other is LedgerItem &&
+        other.uuid == uuid &&
         other.date == date &&
         other.type == type &&
         other.category == category &&
@@ -145,6 +152,7 @@ class LedgerItem {
   @override
   int get hashCode {
     return Object.hash(
+      uuid,
       date,
       type,
       category,

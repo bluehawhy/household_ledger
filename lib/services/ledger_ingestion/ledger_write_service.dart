@@ -94,6 +94,18 @@ class LedgerWriteService {
       return false;
     }
 
+    final periodChanged = oldItem.date.year != newItem.date.year ||
+        oldItem.date.month != newItem.date.month;
+    if (periodChanged) {
+      return _moveTransactionToNewPeriod(
+        client: client,
+        oldItem: oldItem,
+        newItem: newItem,
+        oldSpreadsheetId: spreadsheetId,
+        accountEmail: accountEmail,
+      );
+    }
+
     final sheetsApi = sheets.SheetsApi(client);
     final targetSpreadsheetId = spreadsheetId?.isNotEmpty == true
         ? spreadsheetId!
@@ -101,7 +113,7 @@ class LedgerWriteService {
             client,
             oldItem.date.year,
             accountEmail: accountEmail,
-            createIfNotFound: accountEmail == null,
+            createIfNotFound: false,
           );
 
     if (targetSpreadsheetId == null) {
@@ -110,9 +122,9 @@ class LedgerWriteService {
     }
 
     // 수정 화면에서 사용자가 선택한 분류를 자동 분류 결과로 덮어쓰지 않는다.
-    final updatedNewItem = newItem;
+    final updatedNewItem = newItem.copyWith(uuid: oldItem.uuid);
     final monthSheetName = '${oldItem.date.month}월';
-    final range = "'$monthSheetName'!1:1000";
+    final range = "'$monthSheetName'";
 
     try {
       final response = await sheetsApi.spreadsheets.values.get(
@@ -164,7 +176,7 @@ class LedgerWriteService {
 
       await sheetsApi.spreadsheets.values.batchUpdate(
         sheets.BatchUpdateValuesRequest(
-          valueInputOption: 'USER_ENTERED',
+          valueInputOption: 'RAW',
           data: updates,
         ),
         targetSpreadsheetId,
@@ -187,6 +199,187 @@ class LedgerWriteService {
     }
   }
 
+  Future<bool> _moveTransactionToNewPeriod({
+    required AuthClient client,
+    required LedgerItem oldItem,
+    required LedgerItem newItem,
+    required String? oldSpreadsheetId,
+    required String? accountEmail,
+  }) async {
+    if (oldItem.uuid.trim().isEmpty) {
+      AppLogger.i('⚠️ UUID가 없는 기존 내역은 다른 연·월로 이동할 수 없습니다.');
+      return false;
+    }
+
+    final sourceSpreadsheetId = oldSpreadsheetId?.isNotEmpty == true
+        ? oldSpreadsheetId!
+        : await sheetSetupService.setupLedgerSpreadsheetForYear(
+            client,
+            oldItem.date.year,
+            accountEmail: accountEmail,
+            createIfNotFound: false,
+          );
+    if (sourceSpreadsheetId == null) return false;
+
+    // 공유 계정도 공유 폴더에 쓰기 권한이 있으면 새 연도 시트를 생성한다.
+    final destinationSpreadsheetId =
+        await sheetSetupService.setupLedgerSpreadsheetForYear(
+      client,
+      newItem.date.year,
+      accountEmail: accountEmail,
+      createIfNotFound: true,
+    );
+    if (destinationSpreadsheetId == null) return false;
+
+    final sheetsApi = sheets.SheetsApi(client);
+    final destinationSheetName = '${newItem.date.month}월';
+    final itemToMove = newItem.copyWith(uuid: oldItem.uuid);
+
+    try {
+      await _ensureMonthSheetExists(
+        sheetsApi,
+        destinationSpreadsheetId,
+        destinationSheetName,
+      );
+      final destinationRows = await _getSheetRows(
+        sheetsApi,
+        destinationSpreadsheetId,
+        destinationSheetName,
+      );
+
+      // 1. 새 연·월에 먼저 저장한다. 실패하면 기존 행은 건드리지 않는다.
+      final inserted = await appendTransactionData(
+        sheetsApi,
+        destinationSpreadsheetId,
+        destinationSheetName,
+        destinationRows,
+        itemToMove,
+      );
+      if (!inserted) return false;
+
+      // 2. 새 저장이 확인된 뒤 기존 UUID 행을 삭제한다.
+      final removedSource = await deleteTransaction(
+        client: client,
+        item: oldItem,
+        spreadsheetId: sourceSpreadsheetId,
+        accountEmail: accountEmail,
+      );
+      if (removedSource) {
+        AppLogger.i(
+          '✅ UUID 기준 내역 이동 완료: '
+          '${oldItem.date.year}년 ${oldItem.date.month}월 → '
+          '${newItem.date.year}년 ${newItem.date.month}월',
+        );
+        return true;
+      }
+
+      // 기존 행 삭제 실패 시 새 행을 제거해 원래 상태로 되돌린다.
+      final rolledBack = await deleteTransaction(
+        client: client,
+        item: itemToMove,
+        spreadsheetId: destinationSpreadsheetId,
+        accountEmail: accountEmail,
+      );
+      if (!rolledBack) {
+        AppLogger.e(
+          '❌ 이동 롤백 실패: UUID ${oldItem.uuid}가 양쪽 시트에 남았을 수 있습니다.',
+        );
+      }
+      return false;
+    } catch (e) {
+      AppLogger.i('❌ UUID 기준 연·월 이동 중 예외 발생: $e');
+      return false;
+    }
+  }
+
+  /// UUID가 일치하는 거래 행을 삭제한다.
+  Future<bool> deleteTransaction({
+    required AuthClient client,
+    required LedgerItem item,
+    String? spreadsheetId,
+    String? accountEmail,
+  }) async {
+    if (item.uuid.trim().isEmpty) {
+      AppLogger.i('⚠️ UUID가 없는 기존 내역은 안전하게 삭제할 수 없습니다.');
+      return false;
+    }
+
+    final targetSpreadsheetId = spreadsheetId?.isNotEmpty == true
+        ? spreadsheetId!
+        : await sheetSetupService.setupLedgerSpreadsheetForYear(
+            client,
+            item.date.year,
+            accountEmail: accountEmail,
+            createIfNotFound: false,
+          );
+    if (targetSpreadsheetId == null) return false;
+
+    final sheetsApi = sheets.SheetsApi(client);
+    final sheetName = '${item.date.month}월';
+
+    try {
+      final spreadsheet = await sheetsApi.spreadsheets.get(
+        targetSpreadsheetId,
+      );
+      final sheetId = spreadsheet.sheets
+          ?.where((sheet) => sheet.properties?.title == sheetName)
+          .firstOrNull
+          ?.properties
+          ?.sheetId;
+      if (sheetId == null) return false;
+
+      final response = await sheetsApi.spreadsheets.values.get(
+        targetSpreadsheetId,
+        "'$sheetName'!A:I",
+      );
+      final rows = response.values ?? [];
+      if (rows.isEmpty) return false;
+
+      final uuidIndex = LedgerRowMapper.indexOfHeader(rows.first, 'uuid');
+      if (uuidIndex == null) return false;
+
+      var rowIndex = -1;
+      for (var index = 1; index < rows.length; index++) {
+        final row = rows[index];
+        if (row.length > uuidIndex &&
+            row[uuidIndex].toString().trim() == item.uuid.trim()) {
+          rowIndex = index;
+          break;
+        }
+      }
+      if (rowIndex < 1) return false;
+
+      await sheetsApi.spreadsheets.batchUpdate(
+        sheets.BatchUpdateSpreadsheetRequest(
+          requests: [
+            sheets.Request(
+              deleteDimension: sheets.DeleteDimensionRequest(
+                range: sheets.DimensionRange(
+                  sheetId: sheetId,
+                  dimension: 'ROWS',
+                  startIndex: rowIndex,
+                  endIndex: rowIndex + 1,
+                ),
+              ),
+            ),
+          ],
+        ),
+        targetSpreadsheetId,
+      );
+
+      AppLogger.i("✅ [$sheetName] UUID 기준 내역 삭제 완료 (행: ${rowIndex + 1})");
+      return true;
+    } on sheets.DetailedApiRequestError catch (e) {
+      AppLogger.i(
+        '❌ [$sheetName] UUID 기준 삭제 API 에러 (${e.status}): ${e.message}',
+      );
+      return false;
+    } catch (e) {
+      AppLogger.i('❌ [$sheetName] UUID 기준 삭제 중 예외 발생: $e');
+      return false;
+    }
+  }
+
   /// 월별 다중 거래를 배치 저장한다.
   Future<bool> appendTransactionBatch(
     sheets.SheetsApi sheetsApi,
@@ -197,6 +390,11 @@ class LedgerWriteService {
     if (items.isEmpty) return true;
 
     try {
+      await _ensureMonthSheetExists(
+        sheetsApi,
+        spreadsheetId,
+        sheetName,
+      );
       final existingRows = await _getSheetRows(
         sheetsApi,
         spreadsheetId,
@@ -207,8 +405,8 @@ class LedgerWriteService {
         await sheetsApi.spreadsheets.values.update(
           sheets.ValueRange(values: [LedgerRowMapper.defaultHeader]),
           spreadsheetId,
-          "'$sheetName'!A1:H1",
-          valueInputOption: 'USER_ENTERED',
+          "'$sheetName'!A1:I1",
+          valueInputOption: 'RAW',
         );
         existingRows.add(LedgerRowMapper.defaultHeader);
       }
@@ -237,25 +435,17 @@ class LedgerWriteService {
         return true;
       }
 
-      final startRow = existingRows.length - newRows.length + 1;
-      final endRow = startRow + newRows.length - 1;
       final lastColumn = LedgerRowMapper.columnName(
         existingRows.first.length - 1,
       );
-      final targetRange =
-          "'$sheetName'!A$startRow:$lastColumn$endRow";
+      final appendRange = "'$sheetName'!A:$lastColumn";
 
-      await sheetsApi.spreadsheets.values.batchUpdate(
-        sheets.BatchUpdateValuesRequest(
-          valueInputOption: 'USER_ENTERED',
-          data: [
-            sheets.ValueRange(
-              range: targetRange,
-              values: newRows,
-            ),
-          ],
-        ),
+      await sheetsApi.spreadsheets.values.append(
+        sheets.ValueRange(values: newRows),
         spreadsheetId,
+        appendRange,
+        insertDataOption: 'INSERT_ROWS',
+        valueInputOption: 'RAW',
       );
 
       AppLogger.i(
@@ -369,29 +559,27 @@ class LedgerWriteService {
       return false;
     }
 
-    final targetRow = existingRows.length + 1;
     final lastColumn = LedgerRowMapper.columnName(
       existingRows.first.length - 1,
     );
-    final targetRange =
-        "'$sheetName'!A$targetRow:$lastColumn$targetRow";
+    final appendRange = "'$sheetName'!A:$lastColumn";
 
     try {
-      await sheetsApi.spreadsheets.values.update(
+      await sheetsApi.spreadsheets.values.append(
         sheets.ValueRange(
-          range: targetRange,
           values: [
             LedgerRowMapper.toRowForHeaders(item, existingRows.first),
           ],
         ),
         spreadsheetId,
-        targetRange,
-        valueInputOption: 'USER_ENTERED',
+        appendRange,
+        insertDataOption: 'INSERT_ROWS',
+        valueInputOption: 'RAW',
       );
 
       AppLogger.i(
         "✅ [$sheetName] ${item.type == TransactionType.income ? '수입' : '지출'} "
-        '입력 성공 (행: $targetRow, 범위: $targetRange)',
+        'UUID ${item.uuid} 입력 성공',
       );
       return true;
     } catch (e) {
@@ -420,7 +608,7 @@ class LedgerWriteService {
     String spreadsheetId,
     String sheetName,
   ) async {
-    final range = "'$sheetName'!1:1000";
+    final range = "'$sheetName'";
     final response = await sheetsApi.spreadsheets.values.get(
       spreadsheetId,
       range,
@@ -433,6 +621,18 @@ class LedgerWriteService {
     List<dynamic> headers,
     LedgerItem item,
   ) {
+    final uuidIndex = LedgerRowMapper.indexOfHeader(headers, 'uuid');
+    if (item.uuid.isNotEmpty && uuidIndex != null) {
+      for (var i = 1; i < rows.length; i++) {
+        final row = rows[i];
+        if (row.length > uuidIndex &&
+            row[uuidIndex].toString().trim() == item.uuid.trim()) {
+          return i + 1;
+        }
+      }
+      return -1;
+    }
+
     final dateIndex = LedgerRowMapper.indexOfHeader(headers, '날짜');
     final descriptionIndex = LedgerRowMapper.indexOfHeader(headers, '내용');
     final amountIndex = LedgerRowMapper.indexOfHeader(headers, '금액');
@@ -469,12 +669,19 @@ class LedgerWriteService {
     String sheetName,
   ) async {
     final spreadsheet = await sheetsApi.spreadsheets.get(spreadsheetId);
-    final sheetExists = spreadsheet.sheets?.any(
-          (sheet) => sheet.properties?.title == sheetName,
-        ) ??
-        false;
+    final existingSheet = spreadsheet.sheets?.where(
+      (sheet) => sheet.properties?.title == sheetName,
+    ).firstOrNull;
 
-    if (sheetExists) return;
+    if (existingSheet != null) {
+      await _ensureUuidColumn(
+        sheetsApi,
+        spreadsheetId,
+        sheetName,
+        existingSheet.properties?.sheetId,
+      );
+      return;
+    }
 
     AppLogger.i("➕ '$sheetName' 시트가 존재하지 않아 새로 생성합니다...");
 
@@ -489,7 +696,7 @@ class LedgerWriteService {
       spreadsheetId,
     );
 
-    final headerRange = "'$sheetName'!A1:H1";
+    final headerRange = "'$sheetName'!A1:I1";
     await sheetsApi.spreadsheets.values.update(
       sheets.ValueRange(
         range: headerRange,
@@ -497,7 +704,65 @@ class LedgerWriteService {
       ),
       spreadsheetId,
       headerRange,
-      valueInputOption: 'USER_ENTERED',
+      valueInputOption: 'RAW',
+    );
+  }
+
+  Future<void> _ensureUuidColumn(
+    sheets.SheetsApi sheetsApi,
+    String spreadsheetId,
+    String sheetName,
+    int? sheetId,
+  ) async {
+    final headerRange = "'$sheetName'!1:1";
+    final headerResponse = await sheetsApi.spreadsheets.values.get(
+      spreadsheetId,
+      headerRange,
+    );
+    final headers = headerResponse.values?.firstOrNull ?? <dynamic>[];
+
+    if (LedgerRowMapper.indexOfHeader(headers, 'uuid') != null) return;
+
+    if (headers.isEmpty) {
+      await sheetsApi.spreadsheets.values.update(
+        sheets.ValueRange(values: [LedgerRowMapper.defaultHeader]),
+        spreadsheetId,
+        "'$sheetName'!A1:I1",
+        valueInputOption: 'RAW',
+      );
+      return;
+    }
+
+    if (sheetId == null) {
+      throw StateError("'$sheetName' 시트 ID를 찾을 수 없습니다.");
+    }
+
+    await sheetsApi.spreadsheets.batchUpdate(
+      sheets.BatchUpdateSpreadsheetRequest(
+        requests: [
+          sheets.Request(
+            insertDimension: sheets.InsertDimensionRequest(
+              range: sheets.DimensionRange(
+                sheetId: sheetId,
+                dimension: 'COLUMNS',
+                startIndex: 0,
+                endIndex: 1,
+              ),
+              inheritFromBefore: false,
+            ),
+          ),
+        ],
+      ),
+      spreadsheetId,
+    );
+
+    await sheetsApi.spreadsheets.values.update(
+      sheets.ValueRange(values: const [
+        ['uuid'],
+      ]),
+      spreadsheetId,
+      "'$sheetName'!A1",
+      valueInputOption: 'RAW',
     );
   }
 

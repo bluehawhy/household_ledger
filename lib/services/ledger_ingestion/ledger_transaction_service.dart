@@ -27,6 +27,7 @@ class LedgerDataService {
   CategoryMapper get categoryMapper => sheetSetupService.categoryMapper;
 
   static const List<String> defaultHeader = [
+    'uuid',
     '날짜',
     '거래유형',
     '거래 수단',
@@ -64,6 +65,20 @@ class LedgerDataService {
       client: client,
       oldItem: oldItem,
       newItem: newItem,
+      spreadsheetId: spreadsheetId,
+      accountEmail: accountEmail,
+    );
+  }
+
+  Future<bool> deleteTransaction({
+    required AuthClient client,
+    required LedgerItem item,
+    String? spreadsheetId,
+    String? accountEmail,
+  }) {
+    return _writeService.deleteTransaction(
+      client: client,
+      item: item,
       spreadsheetId: spreadsheetId,
       accountEmail: accountEmail,
     );

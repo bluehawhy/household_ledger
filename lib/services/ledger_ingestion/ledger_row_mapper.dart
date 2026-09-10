@@ -4,6 +4,7 @@ import 'package:household_ledger/services/ledger_ingestion/ledger_item.dart';
 /// Google Sheets의 거래 행과 [LedgerItem] 사이의 변환을 담당한다.
 class LedgerRowMapper {
   static const List<String> defaultHeader = [
+    'uuid',
     '날짜',
     '거래유형',
     '거래 수단',
@@ -19,6 +20,7 @@ class LedgerRowMapper {
     final isIncome = item.type == TransactionType.income;
 
     return [
+      item.uuid,
       item.formattedDate,
       isIncome ? '수입' : '지출',
       item.payMethod ?? '-',
@@ -86,6 +88,7 @@ class LedgerRowMapper {
       return row[index].toString().trim();
     }
 
+    final uuid = readValue('uuid');
     final rawDate = readValue('날짜');
     final rawType = readValue('거래유형');
     final rawPayMethod = readValue('거래 수단');
@@ -105,6 +108,7 @@ class LedgerRowMapper {
     if (parsedDate == null || parsedAmount == null) return null;
 
     return LedgerItem(
+      uuid: uuid,
       date: parsedDate,
       type: rawType == '수입'
           ? TransactionType.income
