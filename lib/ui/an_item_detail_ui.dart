@@ -107,11 +107,7 @@ class _AnItemDetailUIState extends State<AnItemDetailUI> {
     final validCategories = _isExpense ? _expenseCategories : _incomeCategories;
     _selectedCategory = validCategories.contains(currentCategory) ? currentCategory : null;
 
-    _selectedDate = () {
-      if (widget.item.date is DateTime) return widget.item.date as DateTime;
-      if (widget.item.date is String) return DateTime.tryParse(widget.item.date) ?? DateTime.now();
-      return DateTime.now();
-    }();
+    _selectedDate = widget.item.date;
   }
 
   @override
