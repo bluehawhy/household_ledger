@@ -1,5 +1,6 @@
 import 'dart:io' show Platform;
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:google_mobile_ads/google_mobile_ads.dart';
 
@@ -20,6 +21,9 @@ class _AppBannerAdState extends State<AppBannerAd> {
   bool _isLoaded = false;
 
   String? get _adUnitId {
+    // Debug/Profile에서는 Google 테스트 광고만 보여 정책 위반을 막습니다.
+    if (!kReleaseMode) return BannerAd.testAdUnitId;
+
     if (Platform.isAndroid) {
       const id = String.fromEnvironment('ADMOB_BANNER_AD_UNIT_ID_ANDROID');
       return id.isEmpty ? null : id;
