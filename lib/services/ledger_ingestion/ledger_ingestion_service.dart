@@ -34,7 +34,7 @@ class LedgerIngestionService {
   Future<LedgerSubmitResult> processAndSubmit({
     required auth.AuthClient authClient,
     required String rawInput,
-    required String accountId,
+    required String loginEmail,
     String? accountEmail,
   }) async {
     AppLogger.i("rawInput 처리 시작: '$rawInput'");
@@ -49,7 +49,7 @@ class LedgerIngestionService {
         );
       }
 
-      final parsed = _parseItems(lines, accountId);
+      final parsed = _parseItems(lines, loginEmail);
       if (parsed.items.isEmpty) {
         return LedgerSubmitResult(
           isSuccess: false,
@@ -98,14 +98,14 @@ class LedgerIngestionService {
     }
   }
 
-  _ParsedItems _parseItems(List<String> lines, String accountId) {
+  _ParsedItems _parseItems(List<String> lines, String loginEmail) {
     final items = <LedgerItem>[];
     var fail = 0;
 
     for (final line in lines) {
       try {
         final itemMap = _textParserService.parseSingleLineToMap(line);
-        itemMap['uuid'] = _createUuid(accountId);
+        itemMap['uuid'] = _createUuid(loginEmail);
         itemMap['raw_txt'] = line.trim();
         final item = LedgerItem.fromMap(itemMap);
         if (item.amount <= 0) {
@@ -121,10 +121,14 @@ class LedgerIngestionService {
     return _ParsedItems(items: items, fail: fail);
   }
 
-  String _createUuid(String accountId) {
-    final normalizedAccountId = accountId.trim();
-    if (normalizedAccountId.isEmpty) {
-      throw const FormatException('UUID 생성에 필요한 로그인 계정 ID가 없습니다.');
+  String _createUuid(String loginEmail) {
+    final normalizedEmail = loginEmail.trim().toLowerCase();
+    final atIndex = normalizedEmail.indexOf('@');
+    final loginId = atIndex > 0
+        ? normalizedEmail.substring(0, atIndex)
+        : normalizedEmail;
+    if (loginId.isEmpty) {
+      throw const FormatException('UUID 생성에 필요한 로그인 이메일이 없습니다.');
     }
 
     var timestamp = DateTime.now().toUtc().microsecondsSinceEpoch;
@@ -132,7 +136,7 @@ class LedgerIngestionService {
       timestamp = _lastUuidTimestamp + 1;
     }
     _lastUuidTimestamp = timestamp;
-    return '${normalizedAccountId}_$timestamp';
+    return '${loginId}_$timestamp';
   }
 
   Future<_TargetSpreadsheets> _resolveTargetSpreadsheets({
