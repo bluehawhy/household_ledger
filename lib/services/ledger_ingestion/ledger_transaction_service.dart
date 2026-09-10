@@ -70,6 +70,20 @@ class LedgerDataService {
     );
   }
 
+  Future<bool> deleteTransaction({
+    required AuthClient client,
+    required LedgerItem item,
+    String? spreadsheetId,
+    String? accountEmail,
+  }) {
+    return _writeService.deleteTransaction(
+      client: client,
+      item: item,
+      spreadsheetId: spreadsheetId,
+      accountEmail: accountEmail,
+    );
+  }
+
   Future<bool> appendTransactionBatch(
     sheets.SheetsApi sheetsApi,
     String spreadsheetId,
