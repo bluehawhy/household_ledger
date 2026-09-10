@@ -197,6 +197,11 @@ class LedgerWriteService {
     if (items.isEmpty) return true;
 
     try {
+      await _ensureMonthSheetExists(
+        sheetsApi,
+        spreadsheetId,
+        sheetName,
+      );
       final existingRows = await _getSheetRows(
         sheetsApi,
         spreadsheetId,
@@ -207,7 +212,7 @@ class LedgerWriteService {
         await sheetsApi.spreadsheets.values.update(
           sheets.ValueRange(values: [LedgerRowMapper.defaultHeader]),
           spreadsheetId,
-          "'$sheetName'!A1:H1",
+          "'$sheetName'!A1:I1",
           valueInputOption: 'USER_ENTERED',
         );
         existingRows.add(LedgerRowMapper.defaultHeader);
@@ -433,6 +438,18 @@ class LedgerWriteService {
     List<dynamic> headers,
     LedgerItem item,
   ) {
+    final uuidIndex = LedgerRowMapper.indexOfHeader(headers, 'uuid');
+    if (item.uuid.isNotEmpty && uuidIndex != null) {
+      for (var i = 1; i < rows.length; i++) {
+        final row = rows[i];
+        if (row.length > uuidIndex &&
+            row[uuidIndex].toString().trim() == item.uuid.trim()) {
+          return i + 1;
+        }
+      }
+      return -1;
+    }
+
     final dateIndex = LedgerRowMapper.indexOfHeader(headers, '날짜');
     final descriptionIndex = LedgerRowMapper.indexOfHeader(headers, '내용');
     final amountIndex = LedgerRowMapper.indexOfHeader(headers, '금액');
@@ -469,12 +486,19 @@ class LedgerWriteService {
     String sheetName,
   ) async {
     final spreadsheet = await sheetsApi.spreadsheets.get(spreadsheetId);
-    final sheetExists = spreadsheet.sheets?.any(
-          (sheet) => sheet.properties?.title == sheetName,
-        ) ??
-        false;
+    final existingSheet = spreadsheet.sheets?.where(
+      (sheet) => sheet.properties?.title == sheetName,
+    ).firstOrNull;
 
-    if (sheetExists) return;
+    if (existingSheet != null) {
+      await _ensureUuidColumn(
+        sheetsApi,
+        spreadsheetId,
+        sheetName,
+        existingSheet.properties?.sheetId,
+      );
+      return;
+    }
 
     AppLogger.i("➕ '$sheetName' 시트가 존재하지 않아 새로 생성합니다...");
 
@@ -489,7 +513,7 @@ class LedgerWriteService {
       spreadsheetId,
     );
 
-    final headerRange = "'$sheetName'!A1:H1";
+    final headerRange = "'$sheetName'!A1:I1";
     await sheetsApi.spreadsheets.values.update(
       sheets.ValueRange(
         range: headerRange,
@@ -498,6 +522,64 @@ class LedgerWriteService {
       spreadsheetId,
       headerRange,
       valueInputOption: 'USER_ENTERED',
+    );
+  }
+
+  Future<void> _ensureUuidColumn(
+    sheets.SheetsApi sheetsApi,
+    String spreadsheetId,
+    String sheetName,
+    int? sheetId,
+  ) async {
+    final headerRange = "'$sheetName'!1:1";
+    final headerResponse = await sheetsApi.spreadsheets.values.get(
+      spreadsheetId,
+      headerRange,
+    );
+    final headers = headerResponse.values?.firstOrNull ?? <dynamic>[];
+
+    if (LedgerRowMapper.indexOfHeader(headers, 'uuid') != null) return;
+
+    if (headers.isEmpty) {
+      await sheetsApi.spreadsheets.values.update(
+        sheets.ValueRange(values: [LedgerRowMapper.defaultHeader]),
+        spreadsheetId,
+        "'$sheetName'!A1:I1",
+        valueInputOption: 'RAW',
+      );
+      return;
+    }
+
+    if (sheetId == null) {
+      throw StateError("'$sheetName' 시트 ID를 찾을 수 없습니다.");
+    }
+
+    await sheetsApi.spreadsheets.batchUpdate(
+      sheets.BatchUpdateSpreadsheetRequest(
+        requests: [
+          sheets.Request(
+            insertDimension: sheets.InsertDimensionRequest(
+              range: sheets.DimensionRange(
+                sheetId: sheetId,
+                dimension: 'COLUMNS',
+                startIndex: 0,
+                endIndex: 1,
+              ),
+              inheritFromBefore: false,
+            ),
+          ),
+        ],
+      ),
+      spreadsheetId,
+    );
+
+    await sheetsApi.spreadsheets.values.update(
+      sheets.ValueRange(values: const [
+        ['uuid'],
+      ]),
+      spreadsheetId,
+      "'$sheetName'!A1",
+      valueInputOption: 'RAW',
     );
   }
 
