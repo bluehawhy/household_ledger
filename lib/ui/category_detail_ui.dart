@@ -145,7 +145,12 @@ class _CategoryDetailUIState extends State<CategoryDetailUI> {
                                     );
                                   },
                                   onDelete: (item) {
-                                    // TODO: 삭제 시 구글 시트 반영 또는 State 갱신 로직
+                                    final service = LedgerDataService();
+                                    return service.deleteTransaction(
+                                      client: widget.client,
+                                      item: item,
+                                      accountEmail: widget.accountEmail,
+                                    );
                                   },
                                 ),
                               ),
