@@ -7,6 +7,7 @@ import 'package:googleapis_auth/auth_io.dart';
 import 'package:http/http.dart' as http;
 
 import 'google_auth_stub.dart';
+import 'package:household_ledger/services/utils/app_logger.dart';
 
 class DesktopGoogleAuthService implements GoogleAuthService {
   @override
@@ -100,7 +101,7 @@ class DesktopGoogleAuthService implements GoogleAuthService {
               throw Exception("Refresh Token이 없습니다.");
             }
 
-            print("🔄 AccessToken 갱신 중...");
+            AppLogger.i("🔄 AccessToken 갱신 중...");
 
             credentials = await refreshCredentials(
               clientId,
@@ -115,7 +116,7 @@ class DesktopGoogleAuthService implements GoogleAuthService {
             );
           }
 
-          print("✅ 저장된 인증 정보를 사용합니다.");
+          AppLogger.i("✅ 저장된 인증 정보를 사용합니다.");
 
           return authenticatedClient(
             httpClient,
@@ -123,13 +124,13 @@ class DesktopGoogleAuthService implements GoogleAuthService {
           );
         }
       } catch (e) {
-        print("⚠ 기존 ./data/credentials.json 사용 실패");
-        print(e);
+        AppLogger.i("⚠ 기존 ./data/credentials.json 사용 실패");
+        AppLogger.i(e);
       }
     }
 
     // 최초 로그인
-    print("🌐 브라우저 인증을 시작합니다...");
+    AppLogger.i("🌐 브라우저 인증을 시작합니다...");
 
     final client = await clientViaUserConsent(
       clientId,
@@ -143,7 +144,7 @@ class DesktopGoogleAuthService implements GoogleAuthService {
       jsonEncode(client.credentials.toJson()),
     );
 
-    print("💾 ./data/credentials.json 저장 완료");
+    AppLogger.i("💾 ./data/credentials.json 저장 완료");
 
     return client;
   }
@@ -165,7 +166,7 @@ class DesktopGoogleAuthService implements GoogleAuthService {
     } else if (Platform.isLinux) {
       Process.run('xdg-open', [url]);
     } else {
-      print(url);
+      AppLogger.i(url);
     }
   }
 }
