@@ -27,6 +27,7 @@ class LedgerDataService {
   CategoryMapper get categoryMapper => sheetSetupService.categoryMapper;
 
   static const List<String> defaultHeader = [
+    'uuid',
     '날짜',
     '거래유형',
     '거래 수단',
