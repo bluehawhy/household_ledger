@@ -602,16 +602,18 @@ class _OverviewPageState extends State<OverviewPage> {
                     },
                   ),
                 ),
-      floatingActionButton: SafeArea(
-        minimum: const EdgeInsets.only(bottom: 48),
-        child: FloatingActionButton(
-          onPressed: _navigateToIngestion,
-          tooltip: '내역 추가',
-          backgroundColor: addEntryColor,
-          foregroundColor: Colors.white,
-          child: const Icon(Icons.edit),
-        ),
-      ),
+      floatingActionButton: _isLoading
+          ? null
+          : SafeArea(
+              minimum: const EdgeInsets.only(bottom: 48),
+              child: FloatingActionButton(
+                onPressed: _navigateToIngestion,
+                tooltip: '내역 추가',
+                backgroundColor: addEntryColor,
+                foregroundColor: Colors.white,
+                child: const Icon(Icons.edit),
+              ),
+            ),
     );
   }
 
