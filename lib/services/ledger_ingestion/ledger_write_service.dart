@@ -94,6 +94,18 @@ class LedgerWriteService {
       return false;
     }
 
+    final periodChanged = oldItem.date.year != newItem.date.year ||
+        oldItem.date.month != newItem.date.month;
+    if (periodChanged) {
+      return _moveTransactionToNewPeriod(
+        client: client,
+        oldItem: oldItem,
+        newItem: newItem,
+        oldSpreadsheetId: spreadsheetId,
+        accountEmail: accountEmail,
+      );
+    }
+
     final sheetsApi = sheets.SheetsApi(client);
     final targetSpreadsheetId = spreadsheetId?.isNotEmpty == true
         ? spreadsheetId!
@@ -101,7 +113,7 @@ class LedgerWriteService {
             client,
             oldItem.date.year,
             accountEmail: accountEmail,
-            createIfNotFound: accountEmail == null,
+            createIfNotFound: false,
           );
 
     if (targetSpreadsheetId == null) {
@@ -110,7 +122,7 @@ class LedgerWriteService {
     }
 
     // 수정 화면에서 사용자가 선택한 분류를 자동 분류 결과로 덮어쓰지 않는다.
-    final updatedNewItem = newItem;
+    final updatedNewItem = newItem.copyWith(uuid: oldItem.uuid);
     final monthSheetName = '${oldItem.date.month}월';
     final range = "'$monthSheetName'!1:1000";
 
@@ -183,6 +195,99 @@ class LedgerWriteService {
       return false;
     } catch (e) {
       AppLogger.i('❌ [$monthSheetName] 내역 수정 중 예외 발생: $e');
+      return false;
+    }
+  }
+
+  Future<bool> _moveTransactionToNewPeriod({
+    required AuthClient client,
+    required LedgerItem oldItem,
+    required LedgerItem newItem,
+    required String? oldSpreadsheetId,
+    required String? accountEmail,
+  }) async {
+    if (oldItem.uuid.trim().isEmpty) {
+      AppLogger.i('⚠️ UUID가 없는 기존 내역은 다른 연·월로 이동할 수 없습니다.');
+      return false;
+    }
+
+    final sourceSpreadsheetId = oldSpreadsheetId?.isNotEmpty == true
+        ? oldSpreadsheetId!
+        : await sheetSetupService.setupLedgerSpreadsheetForYear(
+            client,
+            oldItem.date.year,
+            accountEmail: accountEmail,
+            createIfNotFound: false,
+          );
+    if (sourceSpreadsheetId == null) return false;
+
+    // 공유 계정도 공유 폴더에 쓰기 권한이 있으면 새 연도 시트를 생성한다.
+    final destinationSpreadsheetId =
+        await sheetSetupService.setupLedgerSpreadsheetForYear(
+      client,
+      newItem.date.year,
+      accountEmail: accountEmail,
+      createIfNotFound: true,
+    );
+    if (destinationSpreadsheetId == null) return false;
+
+    final sheetsApi = sheets.SheetsApi(client);
+    final destinationSheetName = '${newItem.date.month}월';
+    final itemToMove = newItem.copyWith(uuid: oldItem.uuid);
+
+    try {
+      await _ensureMonthSheetExists(
+        sheetsApi,
+        destinationSpreadsheetId,
+        destinationSheetName,
+      );
+      final destinationRows = await _getSheetRows(
+        sheetsApi,
+        destinationSpreadsheetId,
+        destinationSheetName,
+      );
+
+      // 1. 새 연·월에 먼저 저장한다. 실패하면 기존 행은 건드리지 않는다.
+      final inserted = await appendTransactionData(
+        sheetsApi,
+        destinationSpreadsheetId,
+        destinationSheetName,
+        destinationRows,
+        itemToMove,
+      );
+      if (!inserted) return false;
+
+      // 2. 새 저장이 확인된 뒤 기존 UUID 행을 삭제한다.
+      final removedSource = await deleteTransaction(
+        client: client,
+        item: oldItem,
+        spreadsheetId: sourceSpreadsheetId,
+        accountEmail: accountEmail,
+      );
+      if (removedSource) {
+        AppLogger.i(
+          '✅ UUID 기준 내역 이동 완료: '
+          '${oldItem.date.year}년 ${oldItem.date.month}월 → '
+          '${newItem.date.year}년 ${newItem.date.month}월',
+        );
+        return true;
+      }
+
+      // 기존 행 삭제 실패 시 새 행을 제거해 원래 상태로 되돌린다.
+      final rolledBack = await deleteTransaction(
+        client: client,
+        item: itemToMove,
+        spreadsheetId: destinationSpreadsheetId,
+        accountEmail: accountEmail,
+      );
+      if (!rolledBack) {
+        AppLogger.e(
+          '❌ 이동 롤백 실패: UUID ${oldItem.uuid}가 양쪽 시트에 남았을 수 있습니다.',
+        );
+      }
+      return false;
+    } catch (e) {
+      AppLogger.i('❌ UUID 기준 연·월 이동 중 예외 발생: $e');
       return false;
     }
   }
