@@ -219,7 +219,7 @@ class LedgerWriteService {
       final sheetId = spreadsheet.sheets
           ?.where((sheet) => sheet.properties?.title == sheetName)
           .firstOrNull
-          .properties
+          ?.properties
           ?.sheetId;
       if (sheetId == null) return false;
 
