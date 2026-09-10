@@ -124,7 +124,7 @@ class LedgerWriteService {
     // 수정 화면에서 사용자가 선택한 분류를 자동 분류 결과로 덮어쓰지 않는다.
     final updatedNewItem = newItem.copyWith(uuid: oldItem.uuid);
     final monthSheetName = '${oldItem.date.month}월';
-    final range = "'$monthSheetName'!1:1000";
+    final range = "'$monthSheetName'";
 
     try {
       final response = await sheetsApi.spreadsheets.values.get(
@@ -176,7 +176,7 @@ class LedgerWriteService {
 
       await sheetsApi.spreadsheets.values.batchUpdate(
         sheets.BatchUpdateValuesRequest(
-          valueInputOption: 'USER_ENTERED',
+          valueInputOption: 'RAW',
           data: updates,
         ),
         targetSpreadsheetId,
@@ -406,7 +406,7 @@ class LedgerWriteService {
           sheets.ValueRange(values: [LedgerRowMapper.defaultHeader]),
           spreadsheetId,
           "'$sheetName'!A1:I1",
-          valueInputOption: 'USER_ENTERED',
+          valueInputOption: 'RAW',
         );
         existingRows.add(LedgerRowMapper.defaultHeader);
       }
@@ -435,25 +435,17 @@ class LedgerWriteService {
         return true;
       }
 
-      final startRow = existingRows.length - newRows.length + 1;
-      final endRow = startRow + newRows.length - 1;
       final lastColumn = LedgerRowMapper.columnName(
         existingRows.first.length - 1,
       );
-      final targetRange =
-          "'$sheetName'!A$startRow:$lastColumn$endRow";
+      final appendRange = "'$sheetName'!A:$lastColumn";
 
-      await sheetsApi.spreadsheets.values.batchUpdate(
-        sheets.BatchUpdateValuesRequest(
-          valueInputOption: 'USER_ENTERED',
-          data: [
-            sheets.ValueRange(
-              range: targetRange,
-              values: newRows,
-            ),
-          ],
-        ),
+      await sheetsApi.spreadsheets.values.append(
+        sheets.ValueRange(values: newRows),
         spreadsheetId,
+        appendRange,
+        insertDataOption: 'INSERT_ROWS',
+        valueInputOption: 'RAW',
       );
 
       AppLogger.i(
@@ -567,29 +559,27 @@ class LedgerWriteService {
       return false;
     }
 
-    final targetRow = existingRows.length + 1;
     final lastColumn = LedgerRowMapper.columnName(
       existingRows.first.length - 1,
     );
-    final targetRange =
-        "'$sheetName'!A$targetRow:$lastColumn$targetRow";
+    final appendRange = "'$sheetName'!A:$lastColumn";
 
     try {
-      await sheetsApi.spreadsheets.values.update(
+      await sheetsApi.spreadsheets.values.append(
         sheets.ValueRange(
-          range: targetRange,
           values: [
             LedgerRowMapper.toRowForHeaders(item, existingRows.first),
           ],
         ),
         spreadsheetId,
-        targetRange,
-        valueInputOption: 'USER_ENTERED',
+        appendRange,
+        insertDataOption: 'INSERT_ROWS',
+        valueInputOption: 'RAW',
       );
 
       AppLogger.i(
         "✅ [$sheetName] ${item.type == TransactionType.income ? '수입' : '지출'} "
-        '입력 성공 (행: $targetRow, 범위: $targetRange)',
+        'UUID ${item.uuid} 입력 성공',
       );
       return true;
     } catch (e) {
@@ -618,7 +608,7 @@ class LedgerWriteService {
     String spreadsheetId,
     String sheetName,
   ) async {
-    final range = "'$sheetName'!1:1000";
+    final range = "'$sheetName'";
     final response = await sheetsApi.spreadsheets.values.get(
       spreadsheetId,
       range,
@@ -714,7 +704,7 @@ class LedgerWriteService {
       ),
       spreadsheetId,
       headerRange,
-      valueInputOption: 'USER_ENTERED',
+      valueInputOption: 'RAW',
     );
   }
 
