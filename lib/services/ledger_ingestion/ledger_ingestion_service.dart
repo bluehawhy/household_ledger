@@ -156,7 +156,7 @@ class LedgerIngestionService {
             authClient,
             year,
             accountEmail: accountEmail,
-            createIfNotFound: accountEmail == null,
+            createIfNotFound: true,
           );
       if (spreadsheetId == null) {
         missingYears.add(year);
