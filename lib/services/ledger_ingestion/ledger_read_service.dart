@@ -101,7 +101,7 @@ class LedgerReadService {
       for (var i = 1; i < rows.length; i++) {
         final item = LedgerRowMapper.fromRow(rows[i], headers: headers);
         if (item != null) {
-          items.add(item);
+          items.add(_withValidatedCategory(item));
         }
       }
 
@@ -115,5 +115,17 @@ class LedgerReadService {
       AppLogger.i('⚠️ [$sheetName] 내역 조회 중 예외 발생: $e');
       rethrow;
     }
+  }
+
+  LedgerItem _withValidatedCategory(LedgerItem item) {
+    final validCategories = item.type == TransactionType.income
+        ? sheetSetupService.categoryMapper.incomeCategories.keys
+        : sheetSetupService.categoryMapper.expenseCategories.keys;
+    final category = item.category.trim();
+
+    if (category == '미분류' || validCategories.contains(category)) {
+      return item;
+    }
+    return item.copyWith(category: '미분류');
   }
 }
