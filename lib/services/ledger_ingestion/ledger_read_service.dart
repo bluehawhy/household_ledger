@@ -118,14 +118,11 @@ class LedgerReadService {
   }
 
   LedgerItem _withValidatedCategory(LedgerItem item) {
-    final validCategories = item.type == TransactionType.income
-        ? sheetSetupService.categoryMapper.incomeCategories.keys
-        : sheetSetupService.categoryMapper.expenseCategories.keys;
-    final category = item.category.trim();
-
-    if (category == '미분류' || validCategories.contains(category)) {
-      return item;
-    }
-    return item.copyWith(category: '미분류');
+    return item.copyWith(
+      category: sheetSetupService.categoryMapper.normalizeCategory(
+        item.category,
+        isIncome: item.type == TransactionType.income,
+      ),
+    );
   }
 }

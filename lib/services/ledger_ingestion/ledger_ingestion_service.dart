@@ -45,7 +45,7 @@ class LedgerIngestionService {
       if (lines.isEmpty) {
         return const LedgerSubmitResult(
           isSuccess: false,
-          errorMessage: '처리할 수 있는 텍스트가 없습니다.',
+          errorMessage: '입력 내용이 비어 있습니다. 날짜, 금액, 사용 내역을 입력해 주세요.',
         );
       }
 
@@ -55,7 +55,7 @@ class LedgerIngestionService {
           isSuccess: false,
           total: lines.length,
           fail: parsed.fail,
-          errorMessage: '저장할 수 있는 가계부 내역이 없습니다.',
+          errorMessage: parsed.errors.join('\n\n'),
         );
       }
 
@@ -83,11 +83,16 @@ class LedgerIngestionService {
       );
 
       return LedgerSubmitResult(
-        isSuccess: true,
+        isSuccess: submitted.success > 0 || submitted.duplicate > 0,
         total: lines.length,
         success: submitted.success,
         duplicate: submitted.duplicate,
         fail: parsed.fail + submitted.fail,
+        errorMessage: [
+          ...parsed.errors,
+          if (submitted.fail > 0)
+            '${submitted.fail}건을 Google Sheets에 저장하지 못했습니다. 연결 상태와 시트 편집 권한을 확인해 주세요.',
+        ].join('\n\n'),
       );
     } catch (e, stackTrace) {
       AppLogger.i('❌ 업로드 중 에러 발생: $e\n$stackTrace');
@@ -101,6 +106,7 @@ class LedgerIngestionService {
   _ParsedItems _parseItems(List<String> lines, String loginEmail) {
     final items = <LedgerItem>[];
     var fail = 0;
+    final errors = <String>[];
 
     for (final line in lines) {
       try {
@@ -114,11 +120,13 @@ class LedgerIngestionService {
         items.add(item);
       } catch (e) {
         fail++;
+        final reason = e is FormatException ? e.message : e.toString();
+        errors.add('${items.length + fail}번째 내역: $line\n$reason');
         AppLogger.i('❌ 입력 행 파싱 실패: "$line" | $e');
       }
     }
 
-    return _ParsedItems(items: items, fail: fail);
+    return _ParsedItems(items: items, fail: fail, errors: errors);
   }
 
   String _createUuid(String loginEmail) {
@@ -275,8 +283,9 @@ class LedgerIngestionService {
 class _ParsedItems {
   final List<LedgerItem> items;
   final int fail;
+  final List<String> errors;
 
-  const _ParsedItems({required this.items, required this.fail});
+  const _ParsedItems({required this.items, required this.fail, required this.errors});
 }
 
 class _TargetSpreadsheets {

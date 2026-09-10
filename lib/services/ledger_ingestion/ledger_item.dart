@@ -201,7 +201,7 @@ class CategoryMapper {
             // 2단계 중첩 구조인 경우: "식비": { "식당/외식": ["점심", "식당"] }
             value.forEach((subKey, subValue) {
               if (subValue is List) {
-                resultMap[subKey] = subValue.map((e) => e.toString()).toList();
+                resultMap['$key > $subKey'] = subValue.map((e) => e.toString()).toList();
               }
             });
           }
@@ -230,6 +230,18 @@ class CategoryMapper {
   }
 
   /// 적합한 카테고리를 찾아 반환 (예: "맥도날드" 입력 시 -> "식당/외식" 반환)
+  String normalizeCategory(String category, {required bool isIncome}) {
+    final value = category.trim();
+    if (value.isEmpty || value == '미입력') return '미분류';
+    final categories = isIncome ? incomeCategories : expenseCategories;
+    if (categories.containsKey(value)) return value;
+    for (final name in categories.keys) {
+      if (name.split(' > ').last == value) return name;
+    }
+    // 기존 대분류와 사용자가 직접 입력한 분류도 보존한다.
+    return value;
+  }
+
   String getCategory(String description, {required bool isIncome}) {
     final categories = isIncome ? incomeCategories : expenseCategories;
 

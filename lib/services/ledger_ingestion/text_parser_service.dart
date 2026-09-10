@@ -300,9 +300,16 @@ class TextParserService {
     description = category ?? "미지정 내역";
   }
 
-  // 기본값 보정
-  date ??= DateTime.now();
-  amount ??= 0;
+  final missing = <String>[
+    if (date == null) '날짜 (예: 2026/9/10 또는 오늘)',
+    if (amount == null) '금액 (예: 10,600원)',
+  ];
+  if (missing.isNotEmpty) {
+    throw FormatException('${missing.join(', ')}을 인식하지 못했습니다.');
+  }
+  if (amount! <= 0) {
+    throw const FormatException('금액은 0원보다 커야 합니다.');
+  }
 
   final result = {
     'date': date,
@@ -396,22 +403,25 @@ String _cleanRemainingDescription(String text) {
   
       // 1. 날짜와 금액 파싱 시도
       final dateResult = _parseDate(remainingText);
-      final amountResult = _parseAmount(remainingText);
   
       // 2. 날짜와 금액이 모두 있어야 유효한 거래로 간주
-      if (dateResult == null || amountResult == null) {
-        break; // 더 이상 파싱할 거래가 없으면 루프 종료
+      if (dateResult == null) {
+        resultLines.add(remainingText.trim());
+        break;
       }
   
       // 3. 현재 루프에서 처리할 텍스트의 끝 지점(boundary) 찾기
       // 다음 거래의 시작 날짜 바로 앞까지를 현재 거래의 범위로 설정
-      String tempText = remainingText.replaceFirst(dateResult.matchedText, 'DATE_HOLDER');
-      final nextDateMatch = _fullDatePattern.firstMatch(tempText);
+      final firstDateEnd = originalTextForLoop.indexOf(dateResult.matchedText) +
+          dateResult.matchedText.length;
+      final nextDateMatch = _fullDatePattern.firstMatch(
+        originalTextForLoop.substring(firstDateEnd),
+      );
       
       int endBoundary = originalTextForLoop.length;
       if (nextDateMatch != null) {
         // 원본 텍스트에서 다음 날짜의 시작 인덱스를 찾음
-        final nextDateStartIndex = originalTextForLoop.indexOf(nextDateMatch.group(0)!, dateResult.matchedText.length);
+        final nextDateStartIndex = firstDateEnd + nextDateMatch.start;
         if(nextDateStartIndex != -1) {
           endBoundary = nextDateStartIndex;
         }
@@ -458,6 +468,11 @@ String _cleanRemainingDescription(String text) {
       final hour = hourStr != null ? int.parse(hourStr) : 0;
       final minute = minuteStr != null ? int.parse(minuteStr) : 0;
 
+      final parsedDate = DateTime(year, month, day, hour, minute);
+      if (parsedDate.year != year || parsedDate.month != month ||
+          parsedDate.day != day || hour > 23 || minute > 59) {
+        return null;
+      }
       return (
         date: DateTime(year, month, day, hour, minute),
         matchedText: matchedText,
@@ -663,6 +678,14 @@ String _cleanRemainingDescription(String text) {
   String? _matchCategory(String token, {required TransactionType type}) {
     final categories = (type == TransactionType.income) ? _incomeCategories : _expenseCategories;
 
+    // 명시적인 소분류를 먼저 인식한다.
+    for (final entry in categories.entries) {
+      if (entry.value is Map) {
+        for (final subKey in (entry.value as Map).keys) {
+          if (token.contains(subKey.toString())) return '${entry.key} > $subKey';
+        }
+      }
+    }
     // 1. 대분류 키(예: 교통비) 직접 포함 여부 체크
     for (var categoryKey in categories.keys) {
       if (token.contains(categoryKey)) {
@@ -683,7 +706,7 @@ String _cleanRemainingDescription(String text) {
           if (keywords is List) {
             for (var keyword in keywords) {
               if (token.contains(keyword.toString())) {
-                return entry.key; // "차량/주유" 반환 (대분류를 원하시면 entry.key 반환)
+                return '${entry.key} > ${subEntry.key}';
               }
             }
           }

@@ -127,7 +127,7 @@ class LedgerIngestionUIState extends State<LedgerIngestionUI> {
 
       // 3. UI 갱신 및 다이얼로그 표시
       if (mounted) {
-        if (result.isSuccess && result.success > 0) {
+        if (result.isSuccess && result.success > 0 && result.fail == 0) {
           _inputController.clear();
         }
 
@@ -140,6 +140,12 @@ class LedgerIngestionUIState extends State<LedgerIngestionUI> {
           errorMessage: result.errorMessage,
         );
       }
+    } catch (_) {
+      if (!mounted) return;
+      _showResultDialog(
+        isSuccess: false, total: 0, success: 0, duplicate: 0, fail: 0,
+        errorMessage: 'Google 계정 연결을 준비하지 못했습니다. 로그인 상태와 네트워크 연결을 확인한 후 다시 시도해 주세요.',
+      );
     } finally {
       if (mounted) {
         setState(() {
@@ -168,15 +174,17 @@ class LedgerIngestionUIState extends State<LedgerIngestionUI> {
           title: Row(
             children: [
               Icon(
-                isSuccess ? Icons.check_circle : Icons.error,
-                color: isSuccess ? Colors.green : Colors.red,
+                isSuccess ? Icons.check_circle_outline : Icons.error_outline,
+                color: isSuccess
+                    ? Theme.of(context).colorScheme.primary
+                    : Theme.of(context).colorScheme.error,
                 size: 28,
               ),
               const SizedBox(width: 8),
               Text(isSuccess ? '전송 완료' : '전송 실패'),
             ],
           ),
-          content: Column(
+          content: SingleChildScrollView(child: Column(
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
@@ -204,24 +212,27 @@ class LedgerIngestionUIState extends State<LedgerIngestionUI> {
                   ),
                 ),
               ] else ...[
-                const Text('처리 중 오류가 발생했습니다.'),
-                const SizedBox(height: 8),
+                const Text('입력하지 못한 이유를 확인해 주세요.'),
+              ],
+              if (errorMessage != null && errorMessage.isNotEmpty) ...[
+                const SizedBox(height: 12),
                 Text(
-                  errorMessage ?? '알 수 없는 에러가 발생했습니다.',
-                  style: TextStyle(color: Colors.red[800], fontSize: 13),
+                  errorMessage,
+                  style: TextStyle(color: Theme.of(context).colorScheme.error, fontSize: 13),
                 ),
               ],
             ],
-          ),
+          )),
           actions: [
-            TextButton(
+            ElevatedButton.icon(
+              icon: const Icon(Icons.check),
               onPressed: () {
                 Navigator.of(dialogContext).pop();
-                if (isSuccess) {
+                if (isSuccess && fail == 0) {
                   Navigator.of(context).pop();
                 }
               },
-              child: const Text('확인', style: TextStyle(fontSize: 16)),
+              label: const Text('확인'),
             ),
           ],
         );

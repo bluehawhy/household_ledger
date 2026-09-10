@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'account_avatar.dart';
 
 import 'package:flutter/material.dart';
 import 'package:household_ledger/services/auth/app_account.dart';
@@ -1076,26 +1077,8 @@ class _SettingUIState extends State<SettingUI> {
             accountEmail: Text(
               widget.googleUser.email,
             ),
-            currentAccountPicture:
-                CircleAvatar(
-              backgroundImage:
-                  widget.googleUser
-                              .photoUrl !=
-                          null
-                      ? NetworkImage(
-                          widget.googleUser
-                              .photoUrl!,
-                        )
-                      : null,
-              child:
-                  widget.googleUser
-                              .photoUrl ==
-                          null
-                      ? const Icon(
-                          Icons.person,
-                          size: 40,
-                        )
-                      : null,
+            currentAccountPicture: AccountAvatar(
+              photoUrl: widget.googleUser.photoUrl,
             ),
           ),
 

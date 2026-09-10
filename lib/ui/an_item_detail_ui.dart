@@ -63,7 +63,7 @@ class _AnItemDetailUIState extends State<AnItemDetailUI> {
   ];
 
   // 지출 분류 목록
-  final List<String> _expenseCategories = expenseCategoryOrder;
+  final List<String> _expenseCategories = List.of(expenseCategoryOrder);
 
   // 수입 분류 목록
   final List<String> _incomeCategories = [
@@ -80,18 +80,7 @@ class _AnItemDetailUIState extends State<AnItemDetailUI> {
   }
 
   void _initData() {
-    // item 객체의 type 필드가 존재하면 우선적으로 확인 (income/expense String 또는 bool)
-    if (widget.item.type != null) {
-      if (widget.item.type is String) {
-        _isExpense = (widget.item.type as String).toLowerCase() == 'expense';
-      } else if (widget.item.type is bool) {
-        _isExpense = widget.item.type as bool;
-      } else {
-        _isExpense = widget.isExpense;
-      }
-    } else {
-      _isExpense = widget.isExpense;
-    }
+    _isExpense = widget.item.type == TransactionType.expense;
 
     _descriptionController = TextEditingController(text: widget.item.description ?? '');
     _amountController = TextEditingController(text: (widget.item.amount ?? 0).toInt().toString());
@@ -103,9 +92,12 @@ class _AnItemDetailUIState extends State<AnItemDetailUI> {
     _selectedPayMethod = validMethods.contains(currentPayMethod) ? currentPayMethod : null;
 
     // 카테고리 초기화
-    final currentCategory = widget.item.category ?? '';
+    final currentCategory = widget.item.category;
     final validCategories = _isExpense ? _expenseCategories : _incomeCategories;
-    _selectedCategory = validCategories.contains(currentCategory) ? currentCategory : null;
+    if (currentCategory.isNotEmpty && !validCategories.contains(currentCategory)) {
+      validCategories.add(currentCategory);
+    }
+    _selectedCategory = currentCategory.isEmpty ? null : currentCategory;
 
     _selectedDate = widget.item.date;
   }
