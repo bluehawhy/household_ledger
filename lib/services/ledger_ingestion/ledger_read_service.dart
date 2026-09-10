@@ -78,14 +78,13 @@ class LedgerReadService {
     );
 
     if (spreadsheetId == null) {
-      AppLogger.i(
-        '⚠️ [$year년 $month월] 시트를 찾을 수 없어 빈 목록을 반환합니다.',
+      throw StateError(
+        '[$year년 $month월] 가계부 스프레드시트를 찾거나 생성하지 못했습니다.',
       );
-      return [];
     }
 
     final sheetName = '$month월';
-    final range = "'$sheetName'!1:1000";
+    final range = "'$sheetName'";
 
     try {
       final response = await sheetsApi.spreadsheets.values.get(
@@ -111,10 +110,10 @@ class LedgerReadService {
       AppLogger.i(
         '⚠️ [$sheetName] 시트 읽기 실패 (${e.status}): ${e.message}',
       );
-      return [];
+      rethrow;
     } catch (e) {
       AppLogger.i('⚠️ [$sheetName] 내역 조회 중 예외 발생: $e');
-      return [];
+      rethrow;
     }
   }
 }
