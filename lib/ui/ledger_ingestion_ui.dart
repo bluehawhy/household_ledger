@@ -121,6 +121,7 @@ class LedgerIngestionUIState extends State<LedgerIngestionUI> {
       final LedgerSubmitResult result = await _ingestionService.processAndSubmit(
         authClient: authClient,
         rawInput: rawInput,
+        accountId: widget.googleUser.id,
         accountEmail: widget.accountEmail,
       );
 
