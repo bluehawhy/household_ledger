@@ -74,7 +74,7 @@ class LedgerReadService {
       client,
       year,
       accountEmail: accountEmail,
-      createIfNotFound: sheetSetupService.isCurrentAccount(accountEmail),
+      createIfNotFound: true,
     );
 
     if (spreadsheetId == null) {
