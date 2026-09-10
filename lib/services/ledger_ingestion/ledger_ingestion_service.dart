@@ -29,10 +29,12 @@ class LedgerSubmitResult {
 class LedgerIngestionService {
   final TextParserService _textParserService = TextParserService();
   final LedgerDataService _ledgerService = LedgerDataService();
+  int _lastUuidTimestamp = 0;
 
   Future<LedgerSubmitResult> processAndSubmit({
     required auth.AuthClient authClient,
     required String rawInput,
+    required String accountId,
     String? accountEmail,
   }) async {
     AppLogger.i("rawInput 처리 시작: '$rawInput'");
@@ -47,7 +49,7 @@ class LedgerIngestionService {
         );
       }
 
-      final parsed = _parseItems(lines);
+      final parsed = _parseItems(lines, accountId);
       if (parsed.items.isEmpty) {
         return LedgerSubmitResult(
           isSuccess: false,
@@ -96,13 +98,14 @@ class LedgerIngestionService {
     }
   }
 
-  _ParsedItems _parseItems(List<String> lines) {
+  _ParsedItems _parseItems(List<String> lines, String accountId) {
     final items = <LedgerItem>[];
     var fail = 0;
 
     for (final line in lines) {
       try {
         final itemMap = _textParserService.parseSingleLineToMap(line);
+        itemMap['uuid'] = _createUuid(accountId);
         itemMap['raw_txt'] = line.trim();
         final item = LedgerItem.fromMap(itemMap);
         if (item.amount <= 0) {
@@ -116,6 +119,20 @@ class LedgerIngestionService {
     }
 
     return _ParsedItems(items: items, fail: fail);
+  }
+
+  String _createUuid(String accountId) {
+    final normalizedAccountId = accountId.trim();
+    if (normalizedAccountId.isEmpty) {
+      throw const FormatException('UUID 생성에 필요한 로그인 계정 ID가 없습니다.');
+    }
+
+    var timestamp = DateTime.now().toUtc().microsecondsSinceEpoch;
+    if (timestamp <= _lastUuidTimestamp) {
+      timestamp = _lastUuidTimestamp + 1;
+    }
+    _lastUuidTimestamp = timestamp;
+    return '${normalizedAccountId}_$timestamp';
   }
 
   Future<_TargetSpreadsheets> _resolveTargetSpreadsheets({
