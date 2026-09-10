@@ -4,15 +4,15 @@ import 'package:intl/intl.dart';
 import 'package:household_ledger/services/ledger_ingestion/ledger_item.dart';
 
 class AnItemDetailUI extends StatefulWidget {
-  final dynamic item;
+  final LedgerItem item;
   final bool isExpense;
 
   // 데이터 변경 발생 시 상위로 알리기 위한 콜백
   final Future<bool> Function(
-    dynamic item,
+    LedgerItem item,
     Map<String, dynamic> updatedData,
   )? onUpdate;
-  final Function(dynamic item)? onDelete;
+  final Future<bool> Function(LedgerItem item)? onDelete;
 
   const AnItemDetailUI({
     super.key,
@@ -122,8 +122,8 @@ class _AnItemDetailUIState extends State<AnItemDetailUI> {
     super.dispose();
   }
 
-  void _showDeleteConfirmDialog() {
-    showDialog(
+  Future<void> _showDeleteConfirmDialog() async {
+    await showDialog<void>(
       context: context,
       builder: (ctx) => AlertDialog(
         title: const Text('내역 삭제'),
@@ -135,13 +135,23 @@ class _AnItemDetailUIState extends State<AnItemDetailUI> {
           ),
           ElevatedButton(
             style: ElevatedButton.styleFrom(backgroundColor: Colors.redAccent),
-            onPressed: () {
-              widget.onDelete?.call(widget.item);
+            onPressed: () async {
+              final deleted =
+                  await widget.onDelete?.call(widget.item) ?? false;
+              if (!mounted || !ctx.mounted) return;
+
               Navigator.pop(ctx);
-              Navigator.pop(context);
-              ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(content: Text('내역이 삭제되었습니다.')),
-              );
+              if (deleted) {
+                Navigator.pop(context, true);
+              } else {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(
+                    content: Text(
+                      '내역을 삭제하지 못했습니다. UUID 또는 연결 상태를 확인해 주세요.',
+                    ),
+                  ),
+                );
+              }
             },
             child: const Text('삭제', style: TextStyle(color: Colors.white)),
           ),
