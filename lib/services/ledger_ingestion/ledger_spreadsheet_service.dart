@@ -318,7 +318,7 @@ class LedgerSpreadsheetService {
       final rowNum = incomeStartRow + 1 + i;
       List<String> row = [category];
       for (int m = 1; m <= 12; m++) {
-        row.add("=SUMIFS('$m월'!\$F:\$F, '$m월'!\$B:\$B, \"수입\", '$m월'!\$D:\$D, \$A$rowNum)");
+        row.add("=SUMIFS('$m월'!\$G:\$G, '$m월'!\$C:\$C, \"수입\", '$m월'!\$E:\$E, \$A$rowNum)");
       }
       row.add("=SUM(B$rowNum:M$rowNum)");
       incomeTable.add(row);
@@ -358,7 +358,7 @@ class LedgerSpreadsheetService {
       final rowNum = expenseStartRow + 1 + i;
       List<String> row = [category];
       for (int m = 1; m <= 12; m++) {
-        row.add("=SUMIFS('$m월'!\$F:\$F, '$m월'!\$B:\$B, \"지출\", '$m월'!\$D:\$D, \$A$rowNum)");
+        row.add("=SUMIFS('$m월'!\$G:\$G, '$m월'!\$C:\$C, \"지출\", '$m월'!\$E:\$E, \$A$rowNum)");
       }
       row.add("=SUM(B$rowNum:M$rowNum)");
       expenseTable.add(row);
