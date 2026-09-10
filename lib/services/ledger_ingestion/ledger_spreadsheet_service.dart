@@ -387,7 +387,7 @@ class LedgerSpreadsheetService {
     for (int month = 1; month <= 12; month++) {
       data.add(
         sheets.ValueRange(
-          range: "'$month월'!A1:H1",
+          range: "'$month월'!A1:I1",
           values: [LedgerRowMapper.defaultHeader],
         ),
       );
