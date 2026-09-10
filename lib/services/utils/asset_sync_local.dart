@@ -4,6 +4,7 @@ import 'package:flutter/services.dart' show rootBundle;
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:household_ledger/services/utils/app_logger.dart';
 
 class ConfigManager {
   // 웹/공통 가상 경로 (Key)
@@ -23,14 +24,14 @@ class ConfigManager {
       final hasConfig = prefs.containsKey(_webPath);
 
       if (hasConfig) {
-        print('🌐 [Web Config] "$_webPath" 경로에 저장된 설정이 존재합니다. (Skip)');
+        AppLogger.i('🌐 [Web Config] "$_webPath" 경로에 저장된 설정이 존재합니다. (Skip)');
         return;
       }
 
-      print('⚙️ [Web Config] Assets에서 기본 설정을 읽어 "$_webPath" 에 생성합니다...');
+      AppLogger.i('⚙️ [Web Config] Assets에서 기본 설정을 읽어 "$_webPath" 에 생성합니다...');
       final String assetContent = await rootBundle.loadString(_assetPath);
       await prefs.setString(_webPath, assetContent);
-      print('✅ [Web Config] 저장 완료!');
+      AppLogger.i('✅ [Web Config] 저장 완료!');
     } else {
       // -------------------------------------------------------------
       // [앱(Android/iOS/Desktop) 환경 처리]
@@ -39,18 +40,18 @@ class ConfigManager {
       final file = await _getLocalFile();
 
       if (await file.exists()) {
-        print('📂 [App Config] 로컬 설정 파일이 이미 존재합니다: ${file.path} (Skip)');
+        AppLogger.i('📂 [App Config] 로컬 설정 파일이 이미 존재합니다: ${file.path} (Skip)');
         return;
       }
 
-      print('⚙️ [App Config] Assets에서 기본 설정을 읽어 로컬 파일로 저장합니다...');
+      AppLogger.i('⚙️ [App Config] Assets에서 기본 설정을 읽어 로컬 파일로 저장합니다...');
       
       // 상위 폴더(household_ledger/asset_local)가 없으면 생성
       await file.parent.create(recursive: true);
 
       final String assetContent = await rootBundle.loadString(_assetPath);
       await file.writeAsString(assetContent);
-      print('✅ [App Config] 로컬 파일 생성 완료: ${file.path}');
+      AppLogger.i('✅ [App Config] 로컬 파일 생성 완료: ${file.path}');
     }
   }
 
@@ -72,7 +73,7 @@ class ConfigManager {
     if (kIsWeb) {
       final prefs = await SharedPreferences.getInstance();
       await prefs.setString(_webPath, jsonString);
-      print('🌐 [Web Config] "$_webPath" 업데이트 완료');
+      AppLogger.i('🌐 [Web Config] "$_webPath" 업데이트 완료');
     } else {
       final file = await _getLocalFile();
       // 혹시라도 폴더가 지워졌을 가능성에 대비
@@ -80,7 +81,7 @@ class ConfigManager {
         await file.parent.create(recursive: true);
       }
       await file.writeAsString(jsonString);
-      print('📂 [App Config] "${file.path}" 업데이트 완료');
+      AppLogger.i('📂 [App Config] "${file.path}" 업데이트 완료');
     }
   }
 
